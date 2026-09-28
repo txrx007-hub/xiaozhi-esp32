@@ -17,7 +17,6 @@
 #include "application.h"
 #include "config.h"
 #include "walle_console.h"
-#include "walle_home_assistant.h"
 #include "walle_mcp_tools.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
@@ -520,8 +519,6 @@ void WallEBoard::ApplySetting(const std::string& key) {
         weather_line_.clear();
         display_->SetWeatherLine("");
         WalleWeather::GetInstance().RefreshInBackground(0);
-    } else if (key == "ha_enabled" || key == "ha_url" || key == "ha_token") {
-        WalleHomeAssistant::GetInstance().Forget();
     } else if (key == "visualizer_mode") {
         // index 0 = off, 1 = winamp (kVisualizerModes in walle_settings.cc).
         const bool winamp = settings.GetInt("visualizer_mode") == 1;

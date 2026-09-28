@@ -73,11 +73,6 @@ WalleSettings::WalleSettings() {
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},
         {"idle_clock_min", Kind::kInt, 0, 120, 5, "show the big clock after this many idle minutes (0 = off)"},
         {"weather_city", Kind::kText, 0, 40, 0, "city for the weather, for example Amsterdam, or off"},
-        {"ha_enabled", Kind::kBool, 0, 1, 0, "enable Home Assistant voice control"},
-        {"ha_url", Kind::kText, 0, 80, 0,
-         "Home Assistant base URL, e.g. http://homeassistant.local:8123, or off"},
-        {"ha_token", Kind::kText, 0, 300, 0,
-         "Home Assistant long-lived access token (set on the settings page; never read back)"},
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
          "what the screen shows in place of the level bars while Jarvis speaks: off or winamp"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
@@ -154,11 +149,6 @@ std::string WalleSettings::Format(const Def& def, int value) const {
 std::string WalleSettings::FormatCurrent(const Def& def) const {
     if (def.kind == Kind::kText) {
         auto text = GetText(def.key);
-        // ha_token is a credential: never speak it, log it or send it back through the cloud AI
-        // backend (self.settings.get/list go through the same voice/MCP path as everything else).
-        if (std::string(def.key) == "ha_token") {
-            return text.empty() ? "off" : "set (hidden)";
-        }
         return text.empty() ? "off" : text;
     }
     return Format(def, GetInt(def.key));
@@ -323,11 +313,7 @@ std::expected<std::string, std::string> WalleSettings::Set(const std::string& ke
         if (on_changed_) {
             on_changed_(def->key);
         }
-        const bool secret = key == "ha_token";
-        auto show = [secret](const std::string& v) {
-            if (v.empty()) return std::string("off");
-            return secret ? std::string("set (hidden)") : v;
-        };
+        auto show = [](const std::string& v) { return v.empty() ? std::string("off") : v; };
         return std::string(def->key) + " changed from " + show(old_value) + " to " +
                show(value) + ".";
     }

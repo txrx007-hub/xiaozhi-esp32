@@ -19,7 +19,6 @@
 #include "system_info.h"
 #include "wall_e_board.h"
 #include "walle_camera.h"
-#include "walle_home_assistant.h"
 #include "walle_settings.h"
 #include "wifi_manager.h"
 
@@ -109,14 +108,7 @@ cJSON* SettingToJson(const WalleSettings::Def& def) {
         }
         case WalleSettings::Kind::kText:
             cJSON_AddNumberToObject(item, "max_length", def.max);
-            // ha_token is a credential: report whether one is set, never the value itself, so it
-            // never sits in plaintext in a browser response, devtools network tab or fetch cache.
-            if (strcmp(def.key, "ha_token") == 0) {
-                cJSON_AddBoolToObject(item, "is_set", !settings.GetText(def.key).empty());
-                cJSON_AddStringToObject(item, "value", "");
-            } else {
-                cJSON_AddStringToObject(item, "value", settings.GetText(def.key).c_str());
-            }
+            cJSON_AddStringToObject(item, "value", settings.GetText(def.key).c_str());
             break;
     }
     return item;
@@ -158,7 +150,6 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
-    cJSON_AddBoolToObject(root, "ha_reachable", WalleHomeAssistant::GetInstance().IsReachable());
     return SendJson(req, root);
 }
 

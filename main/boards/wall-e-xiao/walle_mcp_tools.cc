@@ -15,7 +15,6 @@
 #include "mcp_server.h"
 #include "wall_e_board.h"
 #include "walle_diagnostics.h"
-#include "walle_home_assistant.h"
 #include "walle_settings.h"
 #include "walle_timers.h"
 #include "walle_weather.h"
@@ -426,79 +425,6 @@ void RegisterWalleTools(WallEBoard& board) {
                         return std::unexpected(report.error());
                     }
                     return *report;
-                });
-
-    // ---------------------------------------------------------------- home assistant
-    mcp.AddTool("self.home_assistant.list_devices",
-                "List Home Assistant lights, switches, fans and similar devices Jarvis can "
-                "control by voice, with their current state. Only works once Home Assistant is "
-                "set up on the settings page (ha_enabled, ha_url, ha_token) and reachable.",
-                PropertyList(), [](const PropertyList&) -> ToolResult {
-                    auto& ha = WalleHomeAssistant::GetInstance();
-                    if (!ha.IsConfigured()) {
-                        return std::unexpected(
-                            "Home Assistant is not set up. Set ha_url and ha_token on Jarvis's "
-                            "LAN settings page, then turn on ha_enabled.");
-                    }
-                    TaskPriorityReset priority_reset(1);
-                    if (!ha.IsReachable()) {
-                        return std::unexpected("Home Assistant is configured but not reachable "
-                                               "right now.");
-                    }
-                    auto entities = ha.ListEntities();
-                    if (!entities) {
-                        return std::unexpected(entities.error());
-                    }
-                    if (entities->empty()) {
-                        return "Home Assistant has no controllable devices.";
-                    }
-                    std::string text;
-                    for (const auto& entity : *entities) {
-                        text += (text.empty() ? "" : "; ") + entity.friendly_name + " (" +
-                               entity.entity_id + "): " + entity.state;
-                    }
-                    return text;
-                });
-
-    mcp.AddTool("self.home_assistant.set_state",
-                "Turn a Home Assistant device on, off, or toggle it. entity_id: from "
-                "self.home_assistant.list_devices (for example light.living_room). state: on, "
-                "off, or toggle.",
-                PropertyList({Property("entity_id", kPropertyTypeString),
-                              Property("state", kPropertyTypeString)}),
-                [](const PropertyList& p) -> ToolResult {
-                    TaskPriorityReset priority_reset(1);
-                    auto& ha = WalleHomeAssistant::GetInstance();
-                    const auto entity_id = p["entity_id"].value<std::string>();
-                    const auto state = p["state"].value<std::string>();
-                    std::expected<std::string, std::string> result;
-                    if (state == "on") {
-                        result = ha.TurnOn(entity_id);
-                    } else if (state == "off") {
-                        result = ha.TurnOff(entity_id);
-                    } else if (state == "toggle") {
-                        result = ha.Toggle(entity_id);
-                    } else {
-                        return std::unexpected("state must be on, off, or toggle.");
-                    }
-                    if (!result) {
-                        return std::unexpected(result.error());
-                    }
-                    return *result;
-                });
-
-    mcp.AddTool("self.home_assistant.get_state",
-                "Read the current state of one Home Assistant device. entity_id: from "
-                "self.home_assistant.list_devices.",
-                PropertyList({Property("entity_id", kPropertyTypeString)}),
-                [](const PropertyList& p) -> ToolResult {
-                    TaskPriorityReset priority_reset(1);
-                    auto result = WalleHomeAssistant::GetInstance().GetState(
-                        p["entity_id"].value<std::string>());
-                    if (!result) {
-                        return std::unexpected(result.error());
-                    }
-                    return *result;
                 });
 
     // ---------------------------------------------------------------- diagnostics

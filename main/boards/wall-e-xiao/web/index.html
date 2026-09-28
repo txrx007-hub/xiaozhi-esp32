@@ -115,7 +115,6 @@ var GROUPS = [
   ["Audio and wake word", ["mic_gain_db", "wake_threshold", "max_volume", "shutter_sound", "wake_chirp"]],
   ["Screen and quiet hours", ["idle_clock_min", "quiet_start", "quiet_end"]],
   ["Weather", ["weather_city"]],
-  ["Home Assistant", ["ha_enabled", "ha_url", "ha_token"]],
   ["Visualizer", ["visualizer_mode"]],
   ["System", ["log_level"]]
 ];
@@ -125,13 +124,10 @@ var LABELS = {
   soft_start_ms: "Soft start ramp", mic_gain_db: "Microphone gain", wake_threshold: "Wake sensitivity",
   max_volume: "Max volume", shutter_sound: "Camera shutter sound", wake_chirp: "Wake chirp",
   idle_clock_min: "Idle clock after", quiet_start: "Quiet hours start", quiet_end: "Quiet hours end",
-  weather_city: "Weather city", ha_enabled: "Enable Home Assistant", ha_url: "Home Assistant URL",
-  ha_token: "Access token", visualizer_mode: "Speaking screen effect", log_level: "Log detail"
+  weather_city: "Weather city", visualizer_mode: "Speaking screen effect", log_level: "Log detail"
 };
 var PLACEHOLDERS = {
-  weather_city: "e.g. Amsterdam (leave empty for off)",
-  ha_url: "e.g. http://homeassistant.local:8123",
-  ha_token: "Paste a long-lived access token"
+  weather_city: "e.g. Amsterdam (leave empty for off)"
 };
 
 // Static reference list (mirrors the board README); not fetched from the device.
@@ -163,11 +159,6 @@ var VOICE_COMMANDS = [
   ["Weather", [
     ["Check it", "“what’s the weather?” (set the city in Settings first)"]
   ]],
-  ["Home Assistant", [
-    ["List devices", "“what devices can you control?”"],
-    ["Turn on / off / toggle", "“turn on the living room lights”, “turn off the fan”"],
-    ["Check a device", "“is the porch light on?”"]
-  ], true],
   ["Diagnostics", [
     ["List / run a check", "“what can you check?”, “run a diagnostic on the camera”, “check everything”"]
   ]],
@@ -176,16 +167,10 @@ var VOICE_COMMANDS = [
   ]]
 ];
 
-// Set once /api/status confirms whether Home Assistant is reachable; groups marked haOnly
-// (see VOICE_COMMANDS) are left out of the legend until then, per Wall-E's "don't list voice
-// commands for a service that isn't actually connected" rule.
-var haAvailable = false;
-
 function buildCommands() {
   var container = document.getElementById("commands");
   container.innerHTML = "";
   VOICE_COMMANDS.forEach(function (group) {
-    if (group[2] && !haAvailable) return;
     var card = document.createElement("div");
     card.className = "card";
     var h3 = document.createElement("h3");
@@ -216,9 +201,6 @@ function fmtValue(def) {
   if (def.kind === "bool") return def.value ? "On" : "Off";
   if (def.kind === "time") return def.value || "Off";
   if (def.kind === "hundredths") return Number(def.value).toFixed(2);
-  // ha_token's real value never reaches the browser (see walle_web.cc); is_set says whether
-  // one has been saved.
-  if (def.key === "ha_token") return def.is_set ? "Set" : "Not set";
   if (def.kind === "text") return def.value || "(not set)";
   if (def.kind === "enum") return def.value;
   var unit = def.key.indexOf("_ms") >= 0 || def.key === "turn_ms_per_90" ? " ms"
@@ -338,12 +320,9 @@ function buildField(def) {
     timeRow.appendChild(offLabel);
     card.appendChild(timeRow);
   } else if (def.kind === "text") {
-    var isSecret = def.key === "ha_token";
     var text = document.createElement("input");
-    text.type = isSecret ? "password" : "text";
-    // A secret's current value never reaches the browser; leaving the field blank on load means
-    // "keep it as is" (change only fires, and only then saves, once the user types a new one).
-    text.value = isSecret ? "" : (def.value || "");
+    text.type = "text";
+    text.value = def.value || "";
     text.maxLength = def.max_length || 40;
     text.placeholder = PLACEHOLDERS[def.key] || "(leave empty for off)";
     function commitText() { save(def.key, text.value.trim(), value, status); }
@@ -395,11 +374,6 @@ function loadStatus() {
     document.getElementById("sub").textContent =
       (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip") +
       (s.napping ? " · napping" : "");
-    var ha = !!s.ha_reachable;
-    if (ha !== haAvailable) {
-      haAvailable = ha;
-      buildCommands();
-    }
   }).catch(function () {
     document.getElementById("dot").className = "dot off";
     document.getElementById("sub").textContent = "Could not reach Jarvis";

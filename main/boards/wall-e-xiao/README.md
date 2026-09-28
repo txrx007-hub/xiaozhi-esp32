@@ -45,7 +45,6 @@ Restore the original firmware and settings: `esptool --chip esp32s3 -p COM10 wri
 | `self.system.deep_sleep` | "sleep for two hours", "sleep until 7 o'clock" |
 | `self.timer.set` / `list` / `cancel` | "set a tea timer for 5 minutes", "alarm at 7:30" |
 | `self.weather.get` | "what's the weather?" (city: "set my weather city to Amsterdam") |
-| `self.home_assistant.list_devices` / `set_state` / `get_state` | "what devices can you control?", "turn on the living room lights" (needs `ha_enabled`, `ha_url`, `ha_token` set on the LAN page first) |
 | `self.display.set_visualizer` | "show the winamp visualizer" (mode: off or winamp; setting `visualizer_mode`) |
 | `self.display.show_screensaver` | "turn on screensaver mode" - shows the idle clock right away; leaves by itself on the next wake word |
 | `self.diagnostics.run_check` | "check everything", "run a diagnostic on the camera" (the check list is in the tool's own description) |
@@ -86,8 +85,7 @@ motor_max_speed 70 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mot
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · max_volume 80 · shutter_sound 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-ha_enabled 0 · ha_url off · ha_token off (write-only: the LAN page and voice/console readouts only
-ever show "set"/"not set", never the token itself) · visualizer_mode off · log_level warn.
+visualizer_mode off · log_level warn.
 
 ## Changes outside this folder (all marked `WALL-E`)
 
@@ -118,9 +116,9 @@ ever show "set"/"not set", never the token itself) · visualizer_mode off · log
   from YUYV to UYVY, assuming a byte-order swap; that was wrong and made it worse (a banded
   green/magenta corruption, not a tint) - the sensor's own YUYV tag was correct all along.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
-  side rejects a bigger tools/list). Currently at 31 (5 upstream + 26 here): mind that headroom
+  side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's
-  parameters (see self.home_assistant.set_state) over adding a whole new one.
+  parameters over adding a whole new one.
 - How long Jarvis stays listening after the wake word before giving up on silence is decided by
   the xiaozhi.me backend's own speech/VAD detection, not by this firmware - there is no local
   timeout to tune (a client-side one was tried and reverted: it rebooted on every settings-page
@@ -130,10 +128,6 @@ ever show "set"/"not set", never the token itself) · visualizer_mode off · log
   as the nap request), since the tool runs mid-conversation, and it exits
   through the exact same path idle_clock_min's own timeout already uses - there's no separate
   "turn it off" command, saying the wake word already exits it.
-- Home Assistant: REST API over your LAN with a long-lived access token (Profile page in HA).
-  The "Home Assistant" voice commands only appear in the LAN page's legend once `ha_enabled` is
-  on and the device can actually reach it; `self.home_assistant.*` tools check the same way. The
-  token is never echoed back by voice, console or the web page once saved.
 - Visualizer: the 32-band FFT (esp-dsp, Hann-windowed, log-spaced 80 Hz-8 kHz bands) runs inside
   `WalleAudioCodec::Write()` - i.e. inline on the audio task, once per ~43 ms (1024 samples at
   24 kHz) it has accumulated - not in a separate task. It only ever looks at what is actually being

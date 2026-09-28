@@ -778,7 +778,13 @@ def get_emoji_collection_path(default_emoji_collection, noto_fonts_path, project
     """
     if not default_emoji_collection:
         return None
-    
+
+    # WALL-E: a collection may also be a directory inside the project (a board's own set)
+    if project_root:
+        custom_path = os.path.join(project_root, default_emoji_collection)
+        if os.path.isdir(custom_path):
+            return custom_path
+
     # Special handling for otto-gif collection
     if default_emoji_collection == 'otto-gif':
         if project_root:

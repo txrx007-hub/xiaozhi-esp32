@@ -35,6 +35,11 @@ public:
     virtual void EncodeWakeWordData() = 0;
     virtual bool GetWakeWordOpus(std::vector<uint8_t>& opus) = 0;
     virtual const std::string& GetLastDetectedWakeWord() const = 0;
+
+    // WALL-E: runtime WakeNet detection threshold (0.40-0.9999). Engines without
+    // WakeNet ignore it. Reset restores the model's built-in threshold.
+    virtual void SetWakeWordThreshold(float threshold) { (void)threshold; }
+    virtual void ResetWakeWordThreshold() {}
 };
 
 #endif

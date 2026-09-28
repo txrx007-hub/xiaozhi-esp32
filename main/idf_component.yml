@@ -37,6 +37,10 @@ dependencies:
   espressif/led_strip: ~3.0.3
   espressif/esp_codec_dev: ~1.6.2
   espressif/esp-sr: ==2.4.7
+  # WALL-E: same version esp-sr already pulls in privately (dependencies.lock); pinned exactly
+  # so the resolver never has to reconcile two esp-dsp versions. Used directly by
+  # walle_audio_codec.cc for the Winamp-style spectrum visualizer's FFT.
+  espressif/esp-dsp: ==1.8.0
   espressif/button: ~4.2.1
   espressif/knob: ^1.1.0
   esphome/esp-hub75:

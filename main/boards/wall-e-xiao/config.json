@@ -1,0 +1,25 @@
+{
+    "type": "wall-e-xiao",
+    "target": "esp32s3",
+    "builds": [
+        {
+            "name": "wall-e-xiao",
+            "sdkconfig_append": [
+                "CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y",
+                "CONFIG_PARTITION_TABLE_CUSTOM_FILENAME=\"main/boards/wall-e-xiao/partitions.csv\"",
+                "CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y",
+                "CONFIG_ESP_CONSOLE_SECONDARY_NONE=y",
+                "CONFIG_PM_ENABLE=y",
+                "CONFIG_SEND_WAKE_WORD_DATA=n",
+                "CONFIG_CAMERA_OV3660=y",
+                "CONFIG_CAMERA_OV3660_AUTO_DETECT_DVP_INTERFACE_SENSOR=y",
+                "CONFIG_CAMERA_OV3660_DVP_YUV422_YUYV_640X480_10FPS=y",
+                "CONFIG_CAMERA_OV3660_DVP_DEFAULT_FMT_YUV422_YUYV_640X480_10FPS=y",
+                "CONFIG_CAMERA_OV2640=y",
+                "CONFIG_CAMERA_OV2640_AUTO_DETECT_DVP_INTERFACE_SENSOR=y",
+                "CONFIG_CAMERA_OV5640=y",
+                "CONFIG_CAMERA_OV5640_AUTO_DETECT_DVP_INTERFACE_SENSOR=y"
+            ]
+        }
+    ]
+}

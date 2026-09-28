@@ -947,6 +947,14 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         return std::unexpected("Image explain URL or token is not set");
     }
 
+    // WALL-E: a bounded wait, not portMAX_DELAY, on every receive from this queue below. This
+    // call runs on the main task (MCP tool calls are scheduled there), so without a bound, a
+    // stalled JPEG encoder or sink callback wedges the entire assistant - not just the camera -
+    // with no recovery except a power cycle. Typical encode time is ~500 ms per the comment
+    // below, so 8 s is generous, not tight.
+    constexpr TickType_t kJpegChunkTimeout = pdMS_TO_TICKS(8000);
+    bool encoder_hung = false;
+
     // 创建局部的 JPEG 队列, 40 entries is about to store 512 * 40 = 20480 bytes of JPEG data
     QueueHandle_t jpeg_queue = xQueueCreate(40, sizeof(JpegChunk));
     if (jpeg_queue == nullptr) {
@@ -988,9 +996,19 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         }
     });
 
-    auto drain_jpeg_queue = [this, jpeg_queue]() {
+    // WALL-E: on a timeout the encoder thread is detached instead of joined (it may still be
+    // running) and jpeg_queue is deliberately left undeleted (never vQueueDelete'd), since the
+    // detached thread's sink callback may still xQueueSend into it. A single leaked queue
+    // handle on this rare, abnormal path is far safer than a use-after-free on it.
+    auto drain_jpeg_queue = [this, jpeg_queue, &encoder_hung, kJpegChunkTimeout]() {
         JpegChunk chunk;
-        while (xQueueReceive(jpeg_queue, &chunk, portMAX_DELAY) == pdPASS) {
+        while (true) {
+            if (xQueueReceive(jpeg_queue, &chunk, kJpegChunkTimeout) != pdPASS) {
+                ESP_LOGE(TAG, "JPEG encoder did not respond in time; abandoning it");
+                encoder_hung = true;
+                encoder_thread_.detach();
+                return;
+            }
             if (chunk.data != nullptr) {
                 heap_caps_free(chunk.data);
             } else {
@@ -1003,6 +1021,7 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
 
     auto network = Board::GetInstance().GetNetwork();
     auto http = network->CreateHttp(3);
+    http->SetTimeout(15000);  // WALL-E: explicit and tighter than the 30 s library default
     // 构造multipart/form-data请求体
     std::string boundary = "----ESP32_CAMERA_BOUNDARY";
 
@@ -1060,8 +1079,10 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
     bool saw_terminator = false;
     while (true) {
         JpegChunk chunk;
-        if (xQueueReceive(jpeg_queue, &chunk, portMAX_DELAY) != pdPASS) {
-            ESP_LOGE(TAG, "Failed to receive JPEG chunk");
+        if (xQueueReceive(jpeg_queue, &chunk, kJpegChunkTimeout) != pdPASS) {
+            ESP_LOGE(TAG, "JPEG encoder did not respond in time; abandoning it");
+            encoder_hung = true;
+            encoder_thread_.detach();
             break;
         }
         if (chunk.data == nullptr) {
@@ -1077,13 +1098,17 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         }
         total_sent += chunk.len;
     }
-    // Wait for the encoder thread to finish
-    encoder_thread_.join();
-    // 清理队列
-    vQueueDelete(jpeg_queue);
+    if (!encoder_hung) {
+        // Wait for the encoder thread to finish
+        encoder_thread_.join();
+        // 清理队列
+        vQueueDelete(jpeg_queue);
+    }
+    // WALL-E: if encoder_hung, jpeg_queue is deliberately left undeleted (see drain_jpeg_queue).
 
-    if (!saw_terminator || total_sent == 0) {
-        ESP_LOGE(TAG, "JPEG encoder failed or produced empty output");
+    if (encoder_hung || !saw_terminator || total_sent == 0) {
+        ESP_LOGE(TAG, "JPEG encoder failed, hung, or produced empty output");
+        http->Close();
         return std::unexpected("Failed to encode image to JPEG");
     }
 

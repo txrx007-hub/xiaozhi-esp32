@@ -147,6 +147,9 @@ public:
     bool ReadAudioData(std::vector<int16_t>& data, int sample_rate, int samples);
     void ResetDecoder();
     void SetModelsList(srmodel_list_t* models_list);
+    // WALL-E: WakeNet detection threshold; the engine applies it on its own task.
+    void SetWakeWordThreshold(float threshold);
+    void ResetWakeWordThreshold();
 
 private:
     AudioCodec* codec_ = nullptr;
@@ -199,6 +202,7 @@ private:
 
     bool audio_engine_initialized_ = false;
     bool voice_detected_ = false;
+    float wake_word_threshold_ = 0.0f;  // WALL-E: <= 0 = model default; kept for a late engine
 #if CONFIG_USE_DEVICE_AEC
     bool device_aec_enabled_ = true;
 #else

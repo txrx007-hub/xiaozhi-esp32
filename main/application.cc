@@ -894,6 +894,9 @@ void Application::HandleStopListeningEvent() {
     }
 }
 
+// WALL-E: true when the board played its own wake cue, so the popup sound is skipped.
+static bool s_board_wake_cue = false;
+
 void Application::HandleWakeWordDetectedEvent() {
     if (!protocol_) {
         return;
@@ -902,11 +905,14 @@ void Application::HandleWakeWordDetectedEvent() {
     auto state = GetDeviceState();
     auto wake_word = audio_service_.GetLastWakeWord();
     ESP_LOGI(TAG, "Wake word detected: %s (state: %d)", wake_word.c_str(), (int)state);
+    auto& board = Board::GetInstance();  // WALL-E
 
     if (state == kDeviceStateIdle) {
+        s_board_wake_cue = board.OnWakeWordDetected(wake_word);  // WALL-E: instant local cue
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateNotifying) {
         StopNotification();
+        s_board_wake_cue = board.OnWakeWordDetected(wake_word);  // WALL-E
         BeginWakeWordInvoke(wake_word);
     } else if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
         AbortSpeaking(kAbortReasonWakeWordDetected);
@@ -917,13 +923,18 @@ void Application::HandleWakeWordDetectedEvent() {
         if (state == kDeviceStateListening) {
             protocol_->SendStartListening(GetDefaultListeningMode());
             audio_service_.ResetDecoder();
-            audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            if (!board.OnWakeWordDetected(wake_word)) {  // WALL-E: board cue replaces the popup
+                audio_service_.PlaySound(Lang::Sounds::OGG_POPUP);
+            }
             // Re-enable wake word detection as it was stopped by the detection itself
             audio_service_.EnableWakeWordDetection(true);
         } else {
             // Play popup sound and start listening again
-            play_popup_on_listening_ = true;
+            // WALL-E: switch state first so late reply packets are dropped, then stop the
+            // reply that is already buffered instead of letting it play out.
             SetListeningMode(GetDefaultListeningMode());
+            audio_service_.ResetDecoder();
+            play_popup_on_listening_ = !board.OnWakeWordDetected(wake_word);
         }
     } else if (state == kDeviceStateActivating) {
         // Restart the activation check if the wake word is detected during activation
@@ -987,9 +998,10 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 #else
     // Set flag to play popup sound after state changes to listening
     // (PlaySound here would be cleared by ResetDecoder in EnableVoiceProcessing)
-    play_popup_on_listening_ = true;
+    play_popup_on_listening_ = !s_board_wake_cue;  // WALL-E: skip if the board already cued
     SetListeningMode(GetDefaultListeningMode());
 #endif
+    s_board_wake_cue = false;  // WALL-E
 }
 
 void Application::HandleStateChangedEvent() {

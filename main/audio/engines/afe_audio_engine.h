@@ -45,6 +45,8 @@ public:
     void EncodeWakeWordData() override;
     bool GetWakeWordOpus(std::vector<uint8_t>& opus) override;
     const std::string& GetLastDetectedWakeWord() const override { return last_detected_wake_word_; }
+    void SetWakeWordThreshold(float threshold) override;  // WALL-E
+    void ResetWakeWordThreshold() override;               // WALL-E
 
 private:
     enum class WakeDetector {
@@ -79,6 +81,11 @@ private:
     // Incremented whenever an active AFE session is invalidated. ProcessingTask
     // uses it to reject a fetch result produced before a disable/re-enable cycle.
     std::atomic<uint32_t> control_generation_{0};
+    // WALL-E: requested WakeNet threshold (<= 0 means the model default). Applied by
+    // ProcessingTask, like the other AFE controls, for each loaded WakeNet model.
+    std::atomic<float> wakenet_threshold_{0.0f};
+    std::atomic<bool> wakenet_threshold_dirty_{false};
+    int wakenet_model_count_ = 0;
     WakeDetector wake_detector_ = WakeDetector::kNone;
 
     std::unique_ptr<CustomWakeWord> custom_wake_word_;
@@ -104,7 +111,7 @@ private:
     void UpdateActiveState();
     void UpdateAecState();
     void ApplyAfeControls();
-    void ApplyPendingReset();
+    bool ApplyPendingReset();  // WALL-E: false while a reset is still pending
     void OutputRawAudio(const std::vector<int16_t>& data);
     void HandleWakeWordResult(const afe_fetch_result_t* result);
     void HandleVoiceResult(const afe_fetch_result_t* result);

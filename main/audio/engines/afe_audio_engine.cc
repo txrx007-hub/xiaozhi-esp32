@@ -174,6 +174,7 @@ bool AfeAudioEngine::Initialize(AudioCodec* codec, int frame_duration_ms,
         if (wakenet_models.size() > 1) {
             afe_config->wakenet_model_name_2 = wakenet_models[1];
         }
+        wakenet_model_count_ = wakenet_models.size() > 1 ? 2 : static_cast<int>(wakenet_models.size());  // WALL-E
     }
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
@@ -347,8 +348,10 @@ void AfeAudioEngine::UpdateActiveState() {
     } else {
         xEventGroupClearBits(event_group_, kAfeActive);
         control_generation_.fetch_add(1);
-        std::lock_guard<std::mutex> lock(input_buffer_mutex_);
-        input_buffer_.clear();
+        // WALL-E: only request the reset. Taking input_buffer_mutex_ here could wait on
+        // Feed(), which holds it while feed() blocks on a full AFE buffer that only
+        // ProcessingTask can drain (and ProcessingTask itself calls this on wake word).
+        // ApplyPendingReset() clears input_buffer_ together with the AFE buffer.
         if (afe_data_ != nullptr) {
             // Don't call reset_buffer() here: this runs in the main task while
             // ProcessingTask may be inside fetch_with_delay() on the same AFE
@@ -390,23 +393,69 @@ void AfeAudioEngine::ApplyAfeControls() {
             afe_iface_->disable_aec(afe_data_);
         }
     }
+    // WALL-E: apply a requested WakeNet threshold to every loaded model (index 1 and 2).
+    // A custom value is re-applied on every control update in case toggling WakeNet
+    // restores the model default.
+    if (wake_detector_ == WakeDetector::kWakeNet) {
+        const bool changed = wakenet_threshold_dirty_.exchange(false);
+        const float threshold = wakenet_threshold_.load();
+        if (changed || threshold > 0.0f) {
+            for (int index = 1; index <= wakenet_model_count_; ++index) {
+                if (threshold > 0.0f) {
+                    afe_iface_->set_wakenet_threshold(afe_data_, index, threshold);
+                } else {
+                    afe_iface_->reset_wakenet_threshold(afe_data_, index);
+                }
+            }
+        }
+        if (changed) {
+            if (threshold > 0.0f) {
+                ESP_LOGI(TAG, "WakeNet threshold set to %.2f", threshold);
+            } else {
+                ESP_LOGI(TAG, "WakeNet threshold reset to model default");
+            }
+        }
+    }
 }
 
-void AfeAudioEngine::ApplyPendingReset() {
-    if (!reset_pending_.exchange(false)) {
-        return;
+// WALL-E: values are stored and applied by ProcessingTask (ApplyAfeControls), so this is
+// safe from any task and before the AFE exists.
+void AfeAudioEngine::SetWakeWordThreshold(float threshold) {
+    if (threshold > 0.0f && threshold < 0.4f) {
+        threshold = 0.4f;
+    } else if (threshold > 0.9999f) {
+        threshold = 0.9999f;
+    }
+    wakenet_threshold_.store(threshold);
+    wakenet_threshold_dirty_ = true;
+    afe_control_dirty_ = true;
+}
+
+void AfeAudioEngine::ResetWakeWordThreshold() { SetWakeWordThreshold(0.0f); }
+
+bool AfeAudioEngine::ApplyPendingReset() {
+    if (!reset_pending_.load()) {
+        return true;
     }
     // Discard audio recorded before (re)activation. Holding input_buffer_mutex_
     // serializes the reset against Feed(); fetch/reset both run in this task.
-    std::lock_guard<std::mutex> lock(input_buffer_mutex_);
+    // WALL-E: try-lock only. Feed() may hold the mutex while feed() waits for room in
+    // the AFE buffer; blocking here would stop the only consumer. The caller keeps
+    // fetching (and discarding) until the reset goes through.
+    std::unique_lock<std::mutex> lock(input_buffer_mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return false;
+    }
+    reset_pending_ = false;
     input_buffer_.clear();
     afe_iface_->reset_buffer(afe_data_);
+    return true;
 }
 
 void AfeAudioEngine::ProcessingTask() {
     while (true) {
         xEventGroupWaitBits(event_group_, kAfeActive, pdFALSE, pdTRUE, portMAX_DELAY);
-        ApplyPendingReset();
+        const bool reset_done = ApplyPendingReset();  // WALL-E: non-blocking
         if ((xEventGroupGetBits(event_group_) & kAfeActive) == 0) {
             continue;
         }
@@ -417,10 +466,12 @@ void AfeAudioEngine::ProcessingTask() {
         }
         const uint32_t generation = control_generation_.load();
         auto* result = afe_iface_->fetch_with_delay(afe_data_, portMAX_DELAY);
-        if (generation != control_generation_.load() ||
+        if (!reset_done || generation != control_generation_.load() ||
             (xEventGroupGetBits(event_group_) & kAfeActive) == 0) {
             // A disable/re-enable may make an old blocked fetch return after the
             // AFE is active again. Reset immediately and never process that frame.
+            // WALL-E: also drop frames while a reset is still pending; fetching them
+            // frees AFE buffer space so a blocked Feed() can release the input lock.
             ApplyPendingReset();
             continue;
         }

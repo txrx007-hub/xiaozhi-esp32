@@ -82,6 +82,13 @@ public:
     virtual void SetPowerSaveLevel(PowerSaveLevel level) = 0;
     virtual std::string GetBoardJson() = 0;
     virtual std::string GetDeviceStatusJson() = 0;
+    // WALL-E: called in the main task right after a wake word is detected (before the
+    // audio channel opens, or after an interrupted reply was flushed). Return true if the
+    // board played its own cue; the application then skips its popup sound.
+    virtual bool OnWakeWordDetected(const std::string& wake_word) {
+        (void)wake_word;
+        return false;
+    }
 };
 
 #define DECLARE_BOARD(BOARD_CLASS_NAME) \

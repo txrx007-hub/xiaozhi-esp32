@@ -84,6 +84,9 @@ void AudioService::Initialize(AudioCodec* codec) {
 #else
     audio_engine_ = std::make_unique<LiteAudioEngine>();
 #endif
+    if (wake_word_threshold_ > 0.0f) {  // WALL-E: threshold requested before Initialize()
+        audio_engine_->SetWakeWordThreshold(wake_word_threshold_);
+    }
     audio_engine_->OnOutput([this](std::vector<int16_t>&& data) {
         PushTaskToEncodeQueue(kAudioTaskTypeEncodeToSendQueue, std::move(data));
     });
@@ -863,6 +866,16 @@ void AudioService::SetModelsList(srmodel_list_t* models_list) {
 bool AudioService::IsAfeWakeWord() {
     return audio_engine_initialized_ && audio_engine_->IsAfeWakeWord();
 }
+
+// WALL-E: forwarded to the engine, which applies it on its own task.
+void AudioService::SetWakeWordThreshold(float threshold) {
+    wake_word_threshold_ = threshold;
+    if (audio_engine_) {
+        audio_engine_->SetWakeWordThreshold(threshold);
+    }
+}
+
+void AudioService::ResetWakeWordThreshold() { SetWakeWordThreshold(0.0f); }
 
 bool AudioService::InitializeAudioEngine() {
     if (!audio_engine_) {

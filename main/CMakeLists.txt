@@ -787,6 +787,12 @@ elseif(CONFIG_BOARD_TYPE_SPOTPEAR_ESP32_S3_1_28_BOX)
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
     set(BUILTIN_ICON_FONT font_material_symbols_16_4)
     set(DEFAULT_EMOJI_COLLECTION noto-color-emoji_64)
+elseif(CONFIG_BOARD_TYPE_WALL_E_XIAO)
+    set(BOARD_DIR "wall-e-xiao")
+    set(BUILTIN_TEXT_FONT font_noto_sans_basic_20_4)
+    set(BUILTIN_ICON_FONT font_material_symbols_20_4)
+    # Otto eye GIFs recolored cyan (make_eyes.py), a board-owned emoji collection
+    set(DEFAULT_EMOJI_COLLECTION main/boards/wall-e-xiao/eyes)
 elseif(CONFIG_BOARD_TYPE_OTTO_ROBOT)
     set(BOARD_DIR "otto-robot")
     set(BUILTIN_TEXT_FONT font_noto_sans_basic_16_4)
@@ -1033,6 +1039,10 @@ if(NOT LANG_DIR STREQUAL "en-US")
 endif()
 
 file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
+# WALL-E: a board may embed its own sounds (boards/<dir>/*.ogg)
+file(GLOB BOARD_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.ogg)
+# WALL-E: a board may embed its own web page(s) (boards/<dir>/web/*.html)
+file(GLOB BOARD_WEB_FILES ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/web/*.html)
 
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
@@ -1066,6 +1076,12 @@ if(CONFIG_IDF_TARGET_ESP32S3)
 endif()
 
 set(MAIN_PRIV_REQUIRES_EXTRA "")
+if(CONFIG_BOARD_TYPE_WALL_E_XIAO)
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+        esp_driver_usb_serial_jtag  # USB "!" console
+        esp_http_server             # LAN settings page
+    )
+endif()
 if(BOARD_TYPE STREQUAL "m5stack-stick-s3")
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
         m5stack__m5pm1
@@ -1089,7 +1105,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${BOARD_SOUNDS} ${BOARD_WEB_FILES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
@@ -1309,6 +1325,7 @@ function(build_default_assets_bin)
         list(APPEND BUILD_ARGS "--emoji_collection" "${DEFAULT_EMOJI_COLLECTION}")
         file(GLOB DEFAULT_EMOJI_FILES CONFIGURE_DEPENDS
             "${NOTO_FONTS_PATH}/png/${DEFAULT_EMOJI_COLLECTION}/*"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${DEFAULT_EMOJI_COLLECTION}/*"  # WALL-E: board-owned set
         )
         list(APPEND DEFAULT_ASSETS_DEPENDENCIES ${DEFAULT_EMOJI_FILES})
     endif()

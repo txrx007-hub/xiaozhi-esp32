@@ -19,7 +19,7 @@ struct JpegChunk {
 };
 
 class EspVideo : public Camera {
-private:
+protected:  // WALL-E: subclasses may read or replace the captured frame (PSRAM-allocated)
     struct FrameBuffer {
         uint8_t* data = nullptr;
         size_t len = 0;
@@ -27,6 +27,8 @@ private:
         uint16_t height = 0;
         v4l2_pix_fmt_t format = 0;
     } frame_;
+
+private:
     v4l2_pix_fmt_t sensor_format_ = 0;
 #ifdef CONFIG_XIAOZHI_ENABLE_ROTATE_CAMERA_IMAGE
     uint16_t sensor_width_ = 0;

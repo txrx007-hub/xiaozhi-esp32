@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis settings</title>
+<style>
+  :root {
+    --bg: #0b1416;
+    --card: #101f22;
+    --card-border: #1c3236;
+    --accent: #20e0e0;
+    --text: #e8f6f5;
+    --muted: #8fb9b6;
+    --danger: #ff8a8a;
+    --success: #6be3ab;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 16px 16px 64px;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; flex-shrink: 0; }
+  .dot.on { background: var(--success); }
+  .dot.off { background: var(--danger); }
+  #sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin: 26px 0 10px; font-weight: 600;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .row label { font-weight: 500; }
+  .value {
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .help { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .status { font-size: 13px; margin: 6px 0 0; min-height: 1em; }
+  .status.ok { color: var(--success); }
+  .status.err { color: var(--danger); }
+  input[type=range] {
+    width: 100%; margin: 10px 0 0; accent-color: var(--accent);
+    height: 28px;
+  }
+  select, input[type=text], input[type=time] {
+    width: 100%;
+    margin-top: 8px;
+    background: #0c1a1c;
+    border: 1px solid var(--card-border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 10px;
+    font-size: 15px;
+  }
+  .time-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .time-row input[type=time] { margin-top: 0; flex: 1; }
+  .off-toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .off-toggle input { accent-color: var(--accent); }
+  button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 15px;
+    margin-top: 24px;
+  }
+  button:active { background: rgba(255,138,138,.1); }
+  button.secondary { border-color: var(--accent); color: var(--accent); margin-top: 0; }
+  button.secondary:active { background: rgba(32,224,224,.1); }
+  #commands { display: none; margin-top: 14px; }
+  #commands .card { margin-bottom: 8px; }
+  #commands h3 { font-size: 14px; margin: 0 0 6px; color: var(--accent); font-weight: 600; }
+  #commands ul { margin: 0; padding-left: 18px; }
+  #commands li { margin-bottom: 5px; font-size: 14px; }
+  #commands .say { color: var(--muted); font-style: italic; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="dot" id="dot"></div>
+    <div>
+      <h1>Jarvis settings</h1>
+      <p id="sub">Loading...</p>
+    </div>
+  </header>
+  <button id="commandsToggle" class="secondary">Voice commands</button>
+  <div id="commands"></div>
+  <div id="sections">Loading settings...</div>
+  <button id="reset">Reset all to defaults</button>
+  <footer>Changes apply and save right away. On your home network only.</footer>
+</div>
+<script>
+// Groups control section order and titles; any key not listed lands in "Other".
+var GROUPS = [
+  ["Motors", ["motor_max_speed", "motor_trim", "turn_ms_per_90", "motor_a_invert", "motor_b_invert", "motor_swap", "soft_start_ms"]],
+  ["Audio and wake word", ["mic_gain_db", "wake_threshold", "max_volume", "shutter_sound", "wake_chirp"]],
+  ["Screen and quiet hours", ["idle_clock_min", "quiet_start", "quiet_end"]],
+  ["Weather", ["weather_city"]],
+  ["Home Assistant", ["ha_enabled", "ha_url", "ha_token"]],
+  ["Visualizer", ["visualizer_mode"]],
+  ["System", ["log_level"]]
+];
+var LABELS = {
+  motor_max_speed: "Top speed", motor_trim: "Steering trim", turn_ms_per_90: "Turn duration (90°)",
+  motor_a_invert: "Right motor direction", motor_b_invert: "Left motor direction", motor_swap: "Swap left/right",
+  soft_start_ms: "Soft start ramp", mic_gain_db: "Microphone gain", wake_threshold: "Wake sensitivity",
+  max_volume: "Max volume", shutter_sound: "Camera shutter sound", wake_chirp: "Wake chirp",
+  idle_clock_min: "Idle clock after", quiet_start: "Quiet hours start", quiet_end: "Quiet hours end",
+  weather_city: "Weather city", ha_enabled: "Enable Home Assistant", ha_url: "Home Assistant URL",
+  ha_token: "Access token", visualizer_mode: "Speaking screen effect", log_level: "Log detail"
+};
+var PLACEHOLDERS = {
+  weather_city: "e.g. Amsterdam (leave empty for off)",
+  ha_url: "e.g. http://homeassistant.local:8123",
+  ha_token: "Paste a long-lived access token"
+};
+
+// Static reference list (mirrors the board README); not fetched from the device.
+var VOICE_COMMANDS = [
+  ["Movement", [
+    ["Drive, turn, stop", "“drive forward for two seconds”, “turn around”, “stop”"],
+    ["Dance", "“do a little dance” (random, wiggle, spin, or happy)"],
+    ["Look around", "“look around the room” (4 photos, one combined answer)"]
+  ]],
+  ["Faces", [
+    ["Show an expression", "“look sad”, “show a happy face”"],
+    ["List expressions", "“what faces can you make?”"]
+  ]],
+  ["Audio tuning", [
+    ["Mic gain", "“make the microphone more sensitive”"],
+    ["Wake sensitivity", "“wake up more easily”"],
+    ["Read current tuning", "“what are your audio settings?”"]
+  ]],
+  ["Settings", [
+    ["List / read / change / reset", "“you drift to the left”, “what are your current settings?”"]
+  ]],
+  ["Power", [
+    ["Nap", "“take a nap” / “are you napping?”"],
+    ["Deep sleep", "“sleep for two hours”, “sleep until 7 o’clock”"]
+  ]],
+  ["Timers", [
+    ["Set / list / cancel", "“set a timer for 5 minutes”, “alarm at 7:30”, “what timers are running?”"]
+  ]],
+  ["Weather", [
+    ["Check it", "“what’s the weather?” (set the city in Settings first)"]
+  ]],
+  ["Home Assistant", [
+    ["List devices", "“what devices can you control?”"],
+    ["Turn on / off / toggle", "“turn on the living room lights”, “turn off the fan”"],
+    ["Check a device", "“is the porch light on?”"]
+  ], true],
+  ["Diagnostics", [
+    ["List / run a check", "“what can you check?”, “run a diagnostic on the camera”, “check everything”"]
+  ]],
+  ["Built into upstream", [
+    ["Volume, photo, status, theme", "“turn the volume up”, “take a photo”, “switch to dark theme”"]
+  ]]
+];
+
+// Set once /api/status confirms whether Home Assistant is reachable; groups marked haOnly
+// (see VOICE_COMMANDS) are left out of the legend until then, per Wall-E's "don't list voice
+// commands for a service that isn't actually connected" rule.
+var haAvailable = false;
+
+function buildCommands() {
+  var container = document.getElementById("commands");
+  container.innerHTML = "";
+  VOICE_COMMANDS.forEach(function (group) {
+    if (group[2] && !haAvailable) return;
+    var card = document.createElement("div");
+    card.className = "card";
+    var h3 = document.createElement("h3");
+    h3.textContent = group[0];
+    card.appendChild(h3);
+    var ul = document.createElement("ul");
+    group[1].forEach(function (item) {
+      var li = document.createElement("li");
+      var strong = document.createElement("span");
+      strong.textContent = item[0] + " — ";
+      var say = document.createElement("span");
+      say.className = "say";
+      say.textContent = item[1];
+      li.appendChild(strong);
+      li.appendChild(say);
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+    container.appendChild(card);
+  });
+}
+
+function labelFor(key) {
+  return LABELS[key] || key.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+}
+
+function fmtValue(def) {
+  if (def.kind === "bool") return def.value ? "On" : "Off";
+  if (def.kind === "time") return def.value || "Off";
+  if (def.kind === "hundredths") return Number(def.value).toFixed(2);
+  // ha_token's real value never reaches the browser (see walle_web.cc); is_set says whether
+  // one has been saved.
+  if (def.key === "ha_token") return def.is_set ? "Set" : "Not set";
+  if (def.kind === "text") return def.value || "(not set)";
+  if (def.kind === "enum") return def.value;
+  var unit = def.key.indexOf("_ms") >= 0 || def.key === "turn_ms_per_90" ? " ms"
+    : def.key === "mic_gain_db" ? " dB"
+    : def.key.indexOf("speed") >= 0 || def.key === "max_volume" ? "%"
+    : def.key === "idle_clock_min" ? " min"
+    : "";
+  return def.value + unit;
+}
+
+function setStatus(el, ok, message) {
+  el.textContent = message || "";
+  el.className = "status" + (message ? (ok ? " ok" : " err") : "");
+  if (message) {
+    clearTimeout(el._timer);
+    el._timer = setTimeout(function () { el.textContent = ""; el.className = "status"; }, 3000);
+  }
+}
+
+function save(key, value, valueEl, statusEl, onResult) {
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: key, value: String(value) })
+  }).then(function (r) { return r.json(); }).then(function (data) {
+    setStatus(statusEl, data.ok, data.message || (data.ok ? "Saved" : "Could not change it"));
+    if (data.ok && data.settings && data.settings[0]) {
+      valueEl.textContent = fmtValue(data.settings[0]);
+    }
+    if (onResult) onResult(data.ok);
+  }).catch(function () {
+    setStatus(statusEl, false, "Could not reach Jarvis");
+    if (onResult) onResult(false);
+  });
+}
+
+function buildField(def) {
+  var card = document.createElement("div");
+  card.className = "card";
+
+  var row = document.createElement("div");
+  row.className = "row";
+  var label = document.createElement("label");
+  label.textContent = labelFor(def.key);
+  var value = document.createElement("span");
+  value.className = "value";
+  value.textContent = fmtValue(def);
+  row.appendChild(label);
+  row.appendChild(value);
+  card.appendChild(row);
+
+  var help = document.createElement("p");
+  help.className = "help";
+  help.textContent = def.help;
+
+  var status = document.createElement("p");
+  status.className = "status";
+
+  if (def.kind === "int" || def.kind === "hundredths") {
+    var slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = def.min;
+    slider.max = def.max;
+    slider.step = def.step;
+    slider.value = def.value;
+    // Live numeric readout while dragging, before anything is saved.
+    slider.addEventListener("input", function () {
+      var live = Object.assign({}, def, { value: slider.value });
+      value.textContent = fmtValue(live);
+    });
+    slider.addEventListener("change", function () {
+      save(def.key, def.kind === "hundredths" ? Number(slider.value).toFixed(2) : slider.value,
+           value, status);
+    });
+    card.appendChild(slider);
+  } else if (def.kind === "bool") {
+    var select = document.createElement("select");
+    ["1", "0"].forEach(function (v) {
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v === "1" ? "On" : "Off";
+      if ((def.value ? "1" : "0") === v) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener("change", function () { save(def.key, select.value, value, status); });
+    card.appendChild(select);
+  } else if (def.kind === "enum") {
+    var enumSelect = document.createElement("select");
+    (def.options || []).forEach(function (opt) {
+      var o = document.createElement("option");
+      o.value = opt; o.textContent = opt;
+      if (opt === def.value) o.selected = true;
+      enumSelect.appendChild(o);
+    });
+    enumSelect.addEventListener("change", function () { save(def.key, enumSelect.value, value, status); });
+    card.appendChild(enumSelect);
+  } else if (def.kind === "time") {
+    var timeRow = document.createElement("div");
+    timeRow.className = "time-row";
+    var time = document.createElement("input");
+    time.type = "time";
+    time.value = def.value || "22:00";
+    time.disabled = !def.value;
+    var offLabel = document.createElement("label");
+    offLabel.className = "off-toggle";
+    var offBox = document.createElement("input");
+    offBox.type = "checkbox";
+    offBox.checked = !def.value;
+    offLabel.appendChild(offBox);
+    offLabel.appendChild(document.createTextNode(" Off"));
+    function commit() {
+      time.disabled = offBox.checked;
+      save(def.key, offBox.checked ? "off" : time.value, value, status);
+    }
+    offBox.addEventListener("change", commit);
+    time.addEventListener("change", commit);
+    timeRow.appendChild(time);
+    timeRow.appendChild(offLabel);
+    card.appendChild(timeRow);
+  } else if (def.kind === "text") {
+    var isSecret = def.key === "ha_token";
+    var text = document.createElement("input");
+    text.type = isSecret ? "password" : "text";
+    // A secret's current value never reaches the browser; leaving the field blank on load means
+    // "keep it as is" (change only fires, and only then saves, once the user types a new one).
+    text.value = isSecret ? "" : (def.value || "");
+    text.maxLength = def.max_length || 40;
+    text.placeholder = PLACEHOLDERS[def.key] || "(leave empty for off)";
+    function commitText() { save(def.key, text.value.trim(), value, status); }
+    text.addEventListener("change", commitText);
+    text.addEventListener("keydown", function (e) { if (e.key === "Enter") text.blur(); });
+    card.appendChild(text);
+  }
+
+  card.appendChild(help);
+  card.appendChild(status);
+  return card;
+}
+
+function loadSettings() {
+  fetch("/api/settings").then(function (r) { return r.json(); }).then(function (list) {
+    var byKey = {};
+    list.forEach(function (def) { byKey[def.key] = def; });
+    var used = {};
+    var container = document.getElementById("sections");
+    container.innerHTML = "";
+    GROUPS.forEach(function (group) {
+      var title = group[0], keys = group[1];
+      var present = keys.filter(function (k) { return byKey[k]; });
+      if (!present.length) return;
+      var h2 = document.createElement("h2");
+      h2.textContent = title;
+      container.appendChild(h2);
+      present.forEach(function (k) {
+        used[k] = true;
+        container.appendChild(buildField(byKey[k]));
+      });
+    });
+    var rest = list.filter(function (def) { return !used[def.key]; });
+    if (rest.length) {
+      var h2b = document.createElement("h2");
+      h2b.textContent = "Other";
+      container.appendChild(h2b);
+      rest.forEach(function (def) { container.appendChild(buildField(def)); });
+    }
+  }).catch(function () {
+    document.getElementById("sections").textContent = "Could not load settings.";
+  });
+}
+
+function loadStatus() {
+  fetch("/api/status").then(function (r) { return r.json(); }).then(function (s) {
+    var dot = document.getElementById("dot");
+    dot.className = "dot " + (s.ip ? "on" : "off");
+    document.getElementById("sub").textContent =
+      (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip") +
+      (s.napping ? " · napping" : "");
+    var ha = !!s.ha_reachable;
+    if (ha !== haAvailable) {
+      haAvailable = ha;
+      buildCommands();
+    }
+  }).catch(function () {
+    document.getElementById("dot").className = "dot off";
+    document.getElementById("sub").textContent = "Could not reach Jarvis";
+  });
+}
+
+document.getElementById("reset").addEventListener("click", function () {
+  if (!confirm("Reset every setting to its default? This cannot be undone.")) return;
+  fetch("/api/reset", { method: "POST" }).then(loadSettings);
+});
+
+var commandsToggle = document.getElementById("commandsToggle");
+var commandsPanel = document.getElementById("commands");
+commandsToggle.addEventListener("click", function () {
+  var open = commandsPanel.style.display === "block";
+  commandsPanel.style.display = open ? "none" : "block";
+  commandsToggle.textContent = open ? "Voice commands" : "Hide voice commands";
+});
+buildCommands();
+
+loadStatus();
+loadSettings();
+setInterval(loadStatus, 5000);
+</script>
+</body>
+</html>

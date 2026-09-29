@@ -1109,6 +1109,15 @@ idf_component_register(SRCS ${SOURCES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
+                        # WALL-E: must stay unconditional (not inside a board if()), even though
+                        # only wall-e-xiao's sdkconfig_append turns it on. MINIMAL_BUILD runs an
+                        # early component-discovery pass with no CONFIG_* values defined yet, to
+                        # decide which components' Kconfig.projbuild get loaded; a board-gated
+                        # require is invisible to that pass, so CONFIG_ESP_COREDUMP_* silently
+                        # no-ops for every board (confirmed: "unknown kconfig symbol" in the build
+                        # log, sdkconfig ends up with zero COREDUMP entries). Costs other boards
+                        # nothing at runtime - unset, it just compiles the component's empty stub.
+                        espcoredump
                         esp_pm
                         esp_psram
                         esp_netif

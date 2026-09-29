@@ -2,8 +2,11 @@
 # xiaozhi.me does not push OTA updates to a custom board, and the eye GIFs (1.6 MB) plus the
 # wake word model and text font need a 4 MB assets partition. nvs and phy_init keep the
 # original offsets and sizes, so saved Wi-Fi and the xiaozhi.me pairing survive the switch.
+# coredump carved out of factory's spare room so a crash backtrace survives the reboot instead
+# of only ever being printed once, live, to a serial console nobody happened to be watching.
 # Name,   Type, SubType, Offset,   Size,     Flags
 nvs,      data, nvs,     0x9000,   0x6000,
 phy_init, data, phy,     0xf000,   0x1000,
-factory,  app,  factory, 0x10000,  0x3F0000,
+factory,  app,  factory, 0x10000,  0x3B0000,
+coredump, data, coredump,0x3C0000, 0x40000,
 assets,   data, spiffs,  0x400000, 0x400000,

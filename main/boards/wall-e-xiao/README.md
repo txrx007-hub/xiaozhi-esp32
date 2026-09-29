@@ -108,6 +108,9 @@ visualizer_mode off · log_level warn.
   wake cue replaces the popup sound.
 - `boards/common/board.h`: `OnWakeWordDetected()` hook (no-op for other boards).
 - `boards/common/esp_video.h`: `frame_` is protected (look_around collage).
+- `boards/common/esp_video.cc`: sets a 3 s `VIDIOC_S_DQBUF_TIMEOUT` once streaming starts - upstream
+  leaves it at `portMAX_DELAY` (no timeout), so a sensor that stops producing frames hangs
+  `Capture()`'s caller forever instead of failing.
 - `scripts/build_default_assets.py`: an emoji collection may be a project folder.
 - `Kconfig.projbuild`, `CMakeLists.txt`: board entry, board sounds and web page embedding,
   USB console and LAN web page component requirements (`esp_driver_usb_serial_jtag`,
@@ -125,7 +128,8 @@ visualizer_mode off · log_level warn.
   left the eyes frozen on that color with nothing on screen explaining why, which read as a worse
   hang than a plain unresponsive screen. The shutter sound (if enabled) still plays, and the real
   picture still shows on the bottom half for 2 s either way (`EspVideo::Capture()` -
-  `WalleDisplay::SetPreviewImage()`, unrelated to the eyes).
+  `WalleDisplay::SetPreviewImage()`, unrelated to the eyes). The capture itself really could hang
+  forever - see `esp_video.cc`'s `VIDIOC_S_DQBUF_TIMEOUT` below - so it wasn't just the eyes.
 - Camera color: this OV3660 module's raw YUYV output carries a uniform magenta/purple cast (its
   own AWB doesn't correct it, and esp_video/esp_cam_sensor define a white-balance control -
   `ESP_CAM_SENSOR_WB` - that nothing in this stack actually wires through a V4L2 control, so there

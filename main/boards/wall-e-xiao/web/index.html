@@ -30,6 +30,8 @@
   .dot.on { background: var(--success); }
   .dot.off { background: var(--danger); }
   #sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  #meta { color: var(--muted); font-size: 13px; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+  #meta .state { color: var(--accent); font-weight: 600; }
   h2 {
     font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
     color: var(--muted); margin: 26px 0 10px; font-weight: 600;
@@ -100,6 +102,7 @@
     <div>
       <h1>Jarvis settings</h1>
       <p id="sub">Loading...</p>
+      <p id="meta"></p>
     </div>
   </header>
   <button id="commandsToggle" class="secondary">Voice commands</button>
@@ -367,16 +370,65 @@ function loadSettings() {
   });
 }
 
+// Mirrors DeviceState in device_state.h; index = the "state" field /api/status sends.
+var STATE_NAMES = [
+  "unknown", "starting", "wifi setup", "idle", "connecting", "listening",
+  "speaking", "notifying", "upgrading", "activating", "testing audio", "fatal error"
+];
+
+function fmtUptime(totalSeconds) {
+  var h = Math.floor(totalSeconds / 3600);
+  var m = Math.floor((totalSeconds % 3600) / 60);
+  if (h > 0) return "up " + h + "h " + m + "m";
+  var s = totalSeconds % 60;
+  return "up " + m + "m " + s + "s";
+}
+
+var pingEl = null;
+var pingInFlight = false;
+
+function pollPing() {
+  if (pingInFlight || !pingEl) return;
+  pingInFlight = true;
+  var start = performance.now();
+  fetch("/api/ping", { cache: "no-store" }).then(function (r) {
+    pingInFlight = false;
+    if (!r.ok) { pingEl.textContent = "ping --"; return; }
+    pingEl.textContent = "ping " + Math.round(performance.now() - start) + " ms";
+  }).catch(function () {
+    pingInFlight = false;
+    pingEl.textContent = "ping timeout";
+  });
+}
+
 function loadStatus() {
   fetch("/api/status").then(function (r) { return r.json(); }).then(function (s) {
     var dot = document.getElementById("dot");
     dot.className = "dot " + (s.ip ? "on" : "off");
     document.getElementById("sub").textContent =
-      (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip") +
-      (s.napping ? " · napping" : "");
+      (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip");
+
+    var stateText = s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
+    var meta = document.getElementById("meta");
+    meta.innerHTML = "";
+    var macSpan = document.createElement("span");
+    macSpan.textContent = s.mac || "";
+    var stateSpan = document.createElement("span");
+    stateSpan.className = "state";
+    stateSpan.textContent = stateText;
+    var uptimeSpan = document.createElement("span");
+    uptimeSpan.textContent = fmtUptime(s.uptime_s || 0);
+    pingEl = document.createElement("span");
+    pingEl.textContent = "ping -- ms";
+    [macSpan, stateSpan, uptimeSpan, pingEl].forEach(function (el, i) {
+      if (i > 0) meta.appendChild(document.createTextNode(" · "));
+      meta.appendChild(el);
+    });
   }).catch(function () {
     document.getElementById("dot").className = "dot off";
     document.getElementById("sub").textContent = "Could not reach Jarvis";
+    document.getElementById("meta").textContent = "";
+    pingEl = null;
   });
 }
 
@@ -397,6 +449,7 @@ buildCommands();
 loadStatus();
 loadSettings();
 setInterval(loadStatus, 5000);
+setInterval(pollPing, 333);  // ~3x/sec, per the settings page's own live-ping request
 </script>
 </body>
 </html>

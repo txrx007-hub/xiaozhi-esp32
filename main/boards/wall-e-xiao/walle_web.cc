@@ -12,6 +12,7 @@
 #include <cJSON.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -146,11 +147,21 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddStringToObject(root, "board", SystemInfo::GetUserAgent().c_str());
     cJSON_AddStringToObject(root, "ssid", wifi.GetSsid().c_str());
     cJSON_AddStringToObject(root, "ip", wifi.GetIpAddress().c_str());
+    cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddNumberToObject(root, "rssi", wifi.GetRssi());
+    cJSON_AddNumberToObject(root, "uptime_s", esp_timer_get_time() / 1000000);
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
     return SendJson(req, root);
+}
+
+// The settings page polls this a few times a second to show a live LAN round-trip time; kept to
+// an empty body so the measurement reflects request/response overhead, not payload transfer time.
+esp_err_t GetPingHandler(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, nullptr, 0);
 }
 
 // WALL-E: temporary diagnostic for the purple-hue report. GET /debug/photo.jpg?format=yuyv|uyvy
@@ -274,7 +285,7 @@ void Start() {
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 6;
+    config.max_uri_handlers = 7;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -289,6 +300,7 @@ void Start() {
         {.uri = "/api/settings", .method = HTTP_POST, .handler = PostSettingsHandler, .user_ctx = nullptr},
         {.uri = "/api/reset", .method = HTTP_POST, .handler = PostResetHandler, .user_ctx = nullptr},
         {.uri = "/api/status", .method = HTTP_GET, .handler = GetStatusHandler, .user_ctx = nullptr},
+        {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
         {.uri = "/debug/photo.jpg", .method = HTTP_GET, .handler = GetDebugPhotoHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {

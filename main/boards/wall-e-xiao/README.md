@@ -64,8 +64,9 @@ Cyan eye expressions (xiaozhi's Otto set, 21 emotions; turquoise/lime green neut
 picks a fresh random color each time it's shown - but no longer on taking a photo, see below) ·
 Wi-Fi icon and status text on top · status dot top-right
 (green ready, amber starting/connecting, red offline) · level bars under the eyes (Jarvis's voice
-while speaking, your voice while listening) - replaced by a 32-band Winamp-style mirrored spectrum
-with peak-hold dots while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars) ·
+while speaking, your voice while listening) - replaced by a 32-band classic-Winamp-style spectrum
+(green/yellow/red bars growing up from the bottom, not mirrored, with peak-hold dots that sit for
+~1 s before falling) while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars) ·
 one scrolling line of Jarvis's words · closed eyes when listening (no "Listening..." text at top -
 the eyes already say it) · big clock with date, weather
 and wake word hint after 5 idle minutes, or right away by voice ("turn on screensaver mode") ·
@@ -173,7 +174,13 @@ visualizer_mode off · log_level warn.
   Fixed at the one chokepoint instead of each of `MakeLabel()`'s 7 call sites: it now always falls
   back to `LV_FONT_DEFAULT` (compiled in - Montserrat 14) rather than silently leaving a label
   fontless.
-  are unaffected.
+- Nap kept talking after the screen already went blank: a "take a nap" reply doesn't stop the app
+  from auto-re-entering listening afterward, so `Tick()` forces it back to idle once the reply is
+  done (`app.StopListening()`) so `EnterNapNow()` can run. That's treated by the server as an
+  end-of-turn, and it would occasionally use the opening to send one more line ("okay, I'm napping
+  now...") - heard well after the screen had gone dark. `EnterNapNow()` now calls
+  `Application::AbortSpeaking()` first, telling the server to stop sending anything further for
+  that turn, so nap is actually silent.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
   side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's
@@ -191,7 +198,10 @@ visualizer_mode off · log_level warn.
   `WalleAudioCodec::Write()` - i.e. inline on the audio task, once per ~43 ms (1024 samples at
   24 kHz) it has accumulated - not in a separate task. It only ever looks at what is actually being
   sent to the speaker, and only runs at all when `visualizer_mode` is `winamp`, so it costs nothing
-  while off or while Jarvis is silent.
+  while off or while Jarvis is silent. Each band's bar is colored green/yellow/red by how loud it
+  currently is (`WinampBandColor`), not a single flat color, and its peak dot holds for ~23 windows
+  (~1 s) before it starts falling, both tuned to look like the original Winamp EQ rather than a
+  plain bar graph.
 - Credits: eye GIFs by txp666 (otto-emoji-gif-component, MIT, see `eyes/LICENSE-otto-emoji-gif`);
   ideas from polunzh/xiaozhi-esp32 (instant wake cue, idle clock) and ricklon/xiaozhi-esp32
   (console, standby, diagnostics). No code or assets from the original Wall-E firmware.

@@ -77,7 +77,7 @@ private:
     static constexpr int kRibbonBars = 20;
     void CreateRibbon();
     void UpdateRibbon();  // LVGL timer, ~25 fps; also drives the spectrum bars when active
-    void UpdateSpectrumBars(lv_color_t color);
+    void UpdateSpectrumBars();
     void CreateClock();
     void SetDigit(int index, int value);
     void RemoveOverlayLater(lv_obj_t* obj, int delay_ms);

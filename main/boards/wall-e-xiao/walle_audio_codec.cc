@@ -19,7 +19,8 @@ namespace {
 // loud peak; tuned by eye against the actual ST7789 once flashed, not derived from a spec sheet.
 constexpr float kMagnitudeFloorDb = -60.0f;
 constexpr float kMagnitudeCeilDb = 0.0f;
-constexpr int kPeakDecayPerWindow = 6;  // ~0.18 s to fall from full scale to zero at ~23 Hz
+constexpr int kPeakDecayPerWindow = 6;  // ~0.18 s to fall from full scale to zero, once falling
+constexpr int kPeakHoldWindows = 23;    // ~1 s at ~23 windows/s before a peak starts falling
 }  // namespace
 
 WalleAudioCodec::WalleAudioCodec(int input_sample_rate, int output_sample_rate,
@@ -160,10 +161,17 @@ void WalleAudioCodec::AnalyzeSpectrumWindow() {
             (db - kMagnitudeFloorDb) / (kMagnitudeCeilDb - kMagnitudeFloorDb) * 255.0f;
         const uint8_t value = static_cast<uint8_t>(std::clamp(scaled, 0.0f, 255.0f));
         frame.bands[band] = value;
-        frame.peaks[band] = value > frame.peaks[band]
-                                ? value
-                                : static_cast<uint8_t>(
-                                      std::max(0, frame.peaks[band] - kPeakDecayPerWindow));
+        // Classic Winamp peak-hold: sit at the peak for a beat, then fall - not a continuous
+        // decay from the moment it's set, which read as jittery rather than a held peak dot.
+        if (value >= frame.peaks[band]) {
+            frame.peaks[band] = value;
+            peak_hold_windows_[band] = kPeakHoldWindows;
+        } else if (peak_hold_windows_[band] > 0) {
+            --peak_hold_windows_[band];
+        } else {
+            frame.peaks[band] =
+                static_cast<uint8_t>(std::max(0, frame.peaks[band] - kPeakDecayPerWindow));
+        }
     }
     std::lock_guard<std::mutex> lock(spectrum_mutex_);
     spectrum_ = frame;

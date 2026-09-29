@@ -80,6 +80,18 @@ void DeleteObjTimer(lv_timer_t* timer) {
     lv_timer_delete(timer);
 }
 
+// Classic Winamp EQ coloring: green for most of the range, yellow near the top, red only right at
+// the peak - not a smooth gradient the whole way, which reads as muddy on a strip this short.
+lv_color_t WinampBandColor(uint8_t value) {
+    if (value >= 224) {
+        return lv_color_hex(0xff0000);
+    }
+    if (value >= 160) {
+        return lv_color_hex(0xffff00);
+    }
+    return lv_color_hex(0x00ff00);
+}
+
 }  // namespace
 
 WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
@@ -164,8 +176,10 @@ void WalleDisplay::CreateRibbon() {
     }
     lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
 
-    // Same strip, same vertical position: 32 mirrored bars + peak-hold dots, shown instead of
-    // the plain ribbon while speaking when visualizer_mode is winamp (see UpdateRibbon).
+    // Same strip, same vertical position: 32 classic-Winamp-style bars (grow up from the bottom,
+    // not mirrored around the center - and colored green/yellow/red by how loud each band is,
+    // not a single flat color) + peak-hold dots, shown instead of the plain ribbon while speaking
+    // when visualizer_mode is winamp (see UpdateRibbon).
     constexpr int kSpectrumBarWidth = 4;
     constexpr int kSpectrumPitch = 6;  // 4 px bar + 2 px gap
     constexpr int kSpectrumWidth = walle_spectrum::kBands * kSpectrumPitch - 2;
@@ -177,29 +191,31 @@ void WalleDisplay::CreateRibbon() {
     lv_obj_remove_flag(spectrum_root_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(spectrum_root_, LV_OBJ_FLAG_CLICKABLE);
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
-        spectrum_bars_[i] = MakeBox(spectrum_root_, i * kSpectrumPitch, kRibbonHeight / 2 - 1,
-                                    kSpectrumBarWidth, 2, 0x2ee6d6, 1);
+        spectrum_bars_[i] = MakeBox(spectrum_root_, i * kSpectrumPitch, kRibbonHeight - 2,
+                                    kSpectrumBarWidth, 2, 0x00ff00, 1);
         spectrum_peaks_[i] =
-            MakeBox(spectrum_root_, i * kSpectrumPitch, 0, kSpectrumBarWidth, kPeakHeight,
-                   0xffffff, 1);
+            MakeBox(spectrum_root_, i * kSpectrumPitch, kRibbonHeight - kPeakHeight,
+                   kSpectrumBarWidth, kPeakHeight, 0xffffff, 1);
     }
     lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
 }
 
-void WalleDisplay::UpdateSpectrumBars(lv_color_t color) {
+void WalleDisplay::UpdateSpectrumBars() {
     constexpr int kRibbonHeight = 26;
+    constexpr int kPeakHeight = 2;
     if (!spectrum_source_) {
         return;
     }
     const walle_spectrum::Frame frame = spectrum_source_();
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
-        const int half = frame.bands[i] * (kRibbonHeight / 2) / 255;
-        const int h = std::max(2, half * 2);
+        const int h = std::max(2, frame.bands[i] * kRibbonHeight / 255);
         lv_obj_set_height(spectrum_bars_[i], h);
-        lv_obj_set_y(spectrum_bars_[i], (kRibbonHeight - h) / 2);
-        lv_obj_set_style_bg_color(spectrum_bars_[i], color, 0);
-        const int peak_half = frame.peaks[i] * (kRibbonHeight / 2) / 255;
-        lv_obj_set_y(spectrum_peaks_[i], std::max(0, kRibbonHeight / 2 - peak_half - 1));
+        lv_obj_set_y(spectrum_bars_[i], kRibbonHeight - h);  // grows up from the bottom, not mirrored
+        lv_obj_set_style_bg_color(spectrum_bars_[i], WinampBandColor(frame.bands[i]), 0);
+
+        const int peak_h = frame.peaks[i] * kRibbonHeight / 255;
+        lv_obj_set_y(spectrum_peaks_[i],
+                    std::clamp(kRibbonHeight - peak_h - kPeakHeight, 0, kRibbonHeight - kPeakHeight));
     }
 }
 
@@ -224,8 +240,9 @@ void WalleDisplay::UpdateRibbon() {
         return;
     }
 
-    // Teal on the light theme, cyan on the dark one; shared by both the plain ribbon and the
-    // spectrum bars so switching visualizer_mode never changes the strip's color.
+    // Teal on the light theme, cyan on the dark one; the plain ribbon's color. The Winamp
+    // spectrum bars use their own green/yellow/red coloring instead (see WinampBandColor), so
+    // switching visualizer_mode changes the strip's look on purpose.
     auto* theme = static_cast<LvglTheme*>(current_theme_);
     const bool dark_background =
         theme != nullptr && lv_color_brightness(theme->background_color()) < 128;
@@ -238,7 +255,7 @@ void WalleDisplay::UpdateRibbon() {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
             ribbon_visible_ = false;
         }
-        UpdateSpectrumBars(color);
+        UpdateSpectrumBars();
         if (!spectrum_visible_) {
             lv_obj_remove_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
             spectrum_visible_ = true;

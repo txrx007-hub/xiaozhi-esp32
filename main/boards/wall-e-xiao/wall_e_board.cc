@@ -373,6 +373,12 @@ void WallEBoard::EnterNapNow() {
     if (napping_) {
         return;
     }
+    // WALL-E: forcing the listening turn to end early (Tick()'s app.StopListening() call, taken
+    // when the reply is done but the app auto-re-entered listening) makes the server treat it as
+    // an end-of-turn and occasionally send one more reply ("okay, I'm napping now...") - which
+    // then played right after the screen had already gone blank for nap. AbortSpeaking() tells
+    // the server to stop generating/sending anything further, so nap is actually silent.
+    Application::GetInstance().AbortSpeaking(kAbortReasonNone);
     motors_->Stop();
     display_->ShowIdleClock(false);
     display_->SetBlank(true);

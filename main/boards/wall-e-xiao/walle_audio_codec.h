@@ -86,6 +86,9 @@ private:
         int hi;
     };
     BandRange band_ranges_[walle_spectrum::kBands];
+    // Windows left before a band's peak-hold dot starts falling again (classic Winamp behavior:
+    // it sits at the peak for a beat before dropping, rather than falling continuously).
+    uint8_t peak_hold_windows_[walle_spectrum::kBands] = {};
 
     mutable std::mutex spectrum_mutex_;
     walle_spectrum::Frame spectrum_;

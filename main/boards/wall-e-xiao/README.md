@@ -66,7 +66,8 @@ Wi-Fi icon and status text on top · status dot top-right
 (green ready, amber starting/connecting, red offline) · level bars under the eyes (Jarvis's voice
 while speaking, your voice while listening) - replaced by a 32-band Winamp-style mirrored spectrum
 with peak-hold dots while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars) ·
-one scrolling line of Jarvis's words · closed eyes when listening · big clock with date, weather
+one scrolling line of Jarvis's words · closed eyes when listening (no "Listening..." text at top -
+the eyes already say it) · big clock with date, weather
 and wake word hint after 5 idle minutes, or right away by voice ("turn on screensaver mode") ·
 blank screen while napping · timer alert · `!pattern` test pattern.
 
@@ -134,10 +135,13 @@ visualizer_mode off · log_level warn.
   own AWB doesn't correct it, and esp_video/esp_cam_sensor define a white-balance control -
   `ESP_CAM_SENSOR_WB` - that nothing in this stack actually wires through a V4L2 control, so there
   is no hardware knob to turn from here). Fixed in software instead: `WalleCamera::CorrectColorCast()`
-  subtracts a fixed bias (found by eye against `/debug/photo.jpg`, not derived from a calibration)
-  from every U/V byte, pulling the color back toward neutral. An earlier attempt retagged the frame
-  from YUYV to UYVY, assuming a byte-order swap; that was wrong and made it worse (a banded
-  green/magenta corruption, not a tint) - the sensor's own YUYV tag was correct all along.
+  subtracts a bias (found by eye against `/debug/photo.jpg?format=yuyv`, not derived from a
+  calibration) from every U and V byte, pulling the color back toward neutral. U and V each get
+  their own bias, tuned separately - a single shared value for both left a residual magenta tint
+  no matter how far it was pushed (past a point it just turned everything green instead), because
+  U and V weren't off by the same amount. An earlier attempt retagged the frame from YUYV to UYVY,
+  assuming a byte-order swap; that was wrong and made it worse (a banded green/magenta corruption,
+  not a tint) - the sensor's own YUYV tag was correct all along.
 - Crash reports: random reboots used to leave nothing behind - the panic handler prints a
   backtrace once, live, to the USB serial console, and without a coredump partition that's gone
   the moment nobody was watching. A `coredump` partition (256 KB, carved out of factory's spare

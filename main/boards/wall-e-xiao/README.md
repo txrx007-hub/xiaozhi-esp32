@@ -81,9 +81,11 @@ on/off or multiple-choice setting, a time picker (with an Off switch) for the qu
 a text box for the weather city. Changes save the instant you release the slider or change the
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
 button is at the bottom. The header also shows MAC address, uptime, current state (idle,
-listening, speaking, napping, ...) and a live LAN round-trip time, polled 3x/sec against
-`GET /api/ping` (an empty response, so the number reflects request/response overhead rather than
-payload transfer). Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
+listening, speaking, napping, ...), live CPU clock/RAM/PSRAM usage (polled every 1 s via
+`GET /api/status` - `SetCpuMhz()` always pins min=max, so the configured frequency is the actual
+one, not just a ceiling) and a live LAN round-trip time, polled 3x/sec against `GET /api/ping` (an
+empty response, so the number reflects request/response overhead rather than payload transfer).
+Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
 `POST /api/reset`, `GET /api/status`, `GET /api/ping`); starts when Wi-Fi connects, stops on
 disconnect.
 

@@ -102,7 +102,15 @@
     <div>
       <h1>Jarvis settings</h1>
       <p id="sub">Loading...</p>
-      <p id="meta"></p>
+      <p id="meta">
+        <span id="metaMac"></span> ·
+        <span id="metaState" class="state"></span> ·
+        <span id="metaUptime"></span> ·
+        <span id="metaCpu"></span> ·
+        <span id="metaRam"></span> ·
+        <span id="metaPsram"></span> ·
+        <span id="metaPing">ping -- ms</span>
+      </p>
     </div>
   </header>
   <button id="commandsToggle" class="secondary">Voice commands</button>
@@ -384,21 +392,27 @@ function fmtUptime(totalSeconds) {
   return "up " + m + "m " + s + "s";
 }
 
-var pingEl = null;
 var pingInFlight = false;
 
 function pollPing() {
-  if (pingInFlight || !pingEl) return;
+  if (pingInFlight) return;
   pingInFlight = true;
   var start = performance.now();
+  var el = document.getElementById("metaPing");
   fetch("/api/ping", { cache: "no-store" }).then(function (r) {
     pingInFlight = false;
-    if (!r.ok) { pingEl.textContent = "ping --"; return; }
-    pingEl.textContent = "ping " + Math.round(performance.now() - start) + " ms";
+    el.textContent = r.ok ? "ping " + Math.round(performance.now() - start) + " ms" : "ping --";
   }).catch(function () {
     pingInFlight = false;
-    pingEl.textContent = "ping timeout";
+    el.textContent = "ping timeout";
   });
+}
+
+// Internal RAM is only a few hundred KB total (shown in KB); PSRAM is several MB (shown in MB).
+function fmtUsage(usedKb, totalKb, mb) {
+  if (!totalKb) return "--";
+  var div = mb ? 1024 : 1, unit = mb ? " MB" : " KB";
+  return Math.round(usedKb / div) + "/" + Math.round(totalKb / div) + unit;
 }
 
 function loadStatus() {
@@ -408,27 +422,18 @@ function loadStatus() {
     document.getElementById("sub").textContent =
       (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip");
 
-    var stateText = s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
-    var meta = document.getElementById("meta");
-    meta.innerHTML = "";
-    var macSpan = document.createElement("span");
-    macSpan.textContent = s.mac || "";
-    var stateSpan = document.createElement("span");
-    stateSpan.className = "state";
-    stateSpan.textContent = stateText;
-    var uptimeSpan = document.createElement("span");
-    uptimeSpan.textContent = fmtUptime(s.uptime_s || 0);
-    pingEl = document.createElement("span");
-    pingEl.textContent = "ping -- ms";
-    [macSpan, stateSpan, uptimeSpan, pingEl].forEach(function (el, i) {
-      if (i > 0) meta.appendChild(document.createTextNode(" · "));
-      meta.appendChild(el);
-    });
+    document.getElementById("metaMac").textContent = s.mac || "";
+    document.getElementById("metaState").textContent =
+      s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
+    document.getElementById("metaUptime").textContent = fmtUptime(s.uptime_s || 0);
+    document.getElementById("metaCpu").textContent = (s.cpu_mhz || "--") + " MHz";
+    document.getElementById("metaRam").textContent =
+      "RAM " + fmtUsage((s.ram_total_kb || 0) - (s.ram_free_kb || 0), s.ram_total_kb, false);
+    document.getElementById("metaPsram").textContent =
+      "PSRAM " + fmtUsage((s.psram_total_kb || 0) - (s.psram_free_kb || 0), s.psram_total_kb, true);
   }).catch(function () {
     document.getElementById("dot").className = "dot off";
     document.getElementById("sub").textContent = "Could not reach Jarvis";
-    document.getElementById("meta").textContent = "";
-    pingEl = null;
   });
 }
 
@@ -448,7 +453,7 @@ buildCommands();
 
 loadStatus();
 loadSettings();
-setInterval(loadStatus, 5000);
+setInterval(loadStatus, 1000);  // CPU/RAM/PSRAM refresh every second, per request
 setInterval(pollPing, 333);  // ~3x/sec, per the settings page's own live-ping request
 </script>
 </body>

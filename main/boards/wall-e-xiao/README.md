@@ -56,12 +56,13 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.display.set_visualizer` | "show the winamp visualizer" (mode: off or winamp; setting `visualizer_mode`) |
 | `self.display.show_screensaver` | "turn on screensaver mode" - shows the idle clock right away; leaves by itself on the next wake word |
 | `self.diagnostics.run_check` | "check everything", "run a diagnostic on the camera" (the check list is in the tool's own description) |
-| upstream | volume, take photo (silent, surprised eyes), device status, theme |
+| upstream | volume, take photo (silent, no screen effect - see camera bottom-half preview below), device status, theme |
 
 ## Screen
 
-Cyan eye expressions (xiaozhi's Otto set, 21 emotions; gold neutral, and surprised picks a fresh
-random color each time it's shown) · Wi-Fi icon and status text on top · status dot top-right
+Cyan eye expressions (xiaozhi's Otto set, 21 emotions; turquoise/lime green neutral, and surprised
+picks a fresh random color each time it's shown - but no longer on taking a photo, see below) ·
+Wi-Fi icon and status text on top · status dot top-right
 (green ready, amber starting/connecting, red offline) · level bars under the eyes (Jarvis's voice
 while speaking, your voice while listening) - replaced by a 32-band Winamp-style mirrored spectrum
 with peak-hold dots while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars) ·
@@ -119,6 +120,12 @@ visualizer_mode off · log_level warn.
 - Keep the microSD slot empty: it shares GPIO7/8/9 with the display.
 - Deep sleep: the backlight is wired to 3V3 and stays lit; the timer drifts by minutes overnight.
 - Weather comes from Open-Meteo (free, no key); the city name and its coordinates are sent there.
+- Camera: no screen effect before or during a shot - `WalleCamera::Capture()` used to hold the
+  eyes on "surprised" (a random color) while capturing; removed because a slow or stuck capture
+  left the eyes frozen on that color with nothing on screen explaining why, which read as a worse
+  hang than a plain unresponsive screen. The shutter sound (if enabled) still plays, and the real
+  picture still shows on the bottom half for 2 s either way (`EspVideo::Capture()` -
+  `WalleDisplay::SetPreviewImage()`, unrelated to the eyes).
 - Camera color: this OV3660 module's raw YUYV output carries a uniform magenta/purple cast (its
   own AWB doesn't correct it, and esp_video/esp_cam_sensor define a white-balance control -
   `ESP_CAM_SENSOR_WB` - that nothing in this stack actually wires through a V4L2 control, so there

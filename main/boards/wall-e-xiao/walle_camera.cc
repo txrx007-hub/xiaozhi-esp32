@@ -63,12 +63,9 @@ void WalleCamera::CorrectColorCast() {
 
 bool WalleCamera::Capture() {
     // WALL-E: a single take_photo/diagnostics shot shows the real picture (bottom-half preview,
-    // 2 s, see WalleDisplay::SetPreviewImage) alongside the surprised-face cue. Only
-    // CollageAdd()'s own per-frame shots for look_around stay suppressed.
-    auto* display = GetWalleDisplay();
-    if (display != nullptr) {
-        display->HoldEmotion("surprised", 1200);
-    }
+    // 2 s, see EspVideo::Capture -> WalleDisplay::SetPreviewImage), no screen effect beforehand -
+    // just the shutter sound (if enabled) and the picture itself. Only CollageAdd()'s own
+    // per-frame shots for look_around stay suppressed.
     if (WalleSettings::GetInstance().GetBool("shutter_sound")) {
         Application::GetInstance().PlaySound(walle_sounds::Shutter());
     }

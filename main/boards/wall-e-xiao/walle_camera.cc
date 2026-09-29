@@ -54,11 +54,11 @@ void WalleCamera::CorrectColorCast() {
     }
     // WALL-E: a single shared bias for U and V left a residual magenta cast (measured on
     // /debug/photo.jpg?format=yuyv: G channel ~11 points low, B channel ~12 points high relative
-    // to the image average) - pushing the shared value further to fix it turned everything green
-    // instead (U was already over-corrected by the time V caught up). U and V needed different
-    // amounts, so they're tuned independently now.
-    constexpr int kChromaBiasU = -30;  // U (blue-difference): needed more pull than V
-    constexpr int kChromaBiasV = -15;  // V (red-difference): was already closer to neutral
+    // to the image average). A first attempt at independent biases (U -30, V -15) overshot the
+    // other way (a wall/ceiling patch measured G +11, B -20 - clearly green/cyan); these values
+    // were computed from that overshoot to land closer to neutral.
+    constexpr int kChromaBiasU = -18;  // U (blue-difference)
+    constexpr int kChromaBiasV = -22;  // V (red-difference)
     for (size_t i = 0; i + 3 < frame_.len; i += 4) {
         frame_.data[i + 1] =
             static_cast<uint8_t>(std::clamp(static_cast<int>(frame_.data[i + 1]) + kChromaBiasU, 0, 255));

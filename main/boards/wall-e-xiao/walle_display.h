@@ -28,6 +28,9 @@ public:
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
     // next one arrives.
     void SetChatMessage(const char* role, const char* content) override;
+    // The closed eyes already say "listening" - the top status text doesn't need to repeat it.
+    // Every other status text (connecting, speaking, standby, ...) still shows as normal.
+    void SetStatus(const char* status) override;
     // A single take_photo/diagnostics capture shows the real picture, fit into the bottom half
     // of the screen, for 2 s (upstream default: full-ish size, centered, 5 s). look_around's
     // per-frame shots stay suppressed via SuppressNextPreview(), unaffected by this.

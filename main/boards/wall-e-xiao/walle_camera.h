@@ -36,8 +36,9 @@ private:
     // tried first, produced a much worse banded corruption, not a fix). esp_video/esp_cam_sensor
     // define a white-balance control (ESP_CAM_SENSOR_WB) but no code in this stack actually wires
     // it through a V4L2 control, so there is no hardware AWB knob to turn from here. Correcting it
-    // in software instead: pulls every U/V byte back toward neutral (128) by a fixed, by-eye-tuned
-    // amount. Applied right after each raw capture, in our own code only.
+    // in software instead: pulls every U and V byte back toward neutral (128), each by its own
+    // fixed, by-eye-tuned amount (a single shared amount left a residual tint - U and V needed
+    // different corrections). Applied right after each raw capture, in our own code only.
     void CorrectColorCast();
 
     uint8_t* collage_ = nullptr;

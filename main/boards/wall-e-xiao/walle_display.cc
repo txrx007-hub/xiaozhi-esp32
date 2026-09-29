@@ -11,6 +11,7 @@
 #include <esp_random.h>
 
 #include "application.h"
+#include "assets/lang_config.h"
 #include "config.h"
 #include "lvgl_theme.h"
 
@@ -346,6 +347,15 @@ void WalleDisplay::SetChatMessage(const char* role, const char* content) {
         const int64_t duration_ms = std::clamp<int64_t>(70LL * static_cast<int64_t>(length), 2500, 9000);
         esp_timer_start_once(subtitle_clear_timer_, duration_ms * 1000);
     }
+}
+
+void WalleDisplay::SetStatus(const char* status) {
+    // The closed eyes already show listening; leave whatever status text was already there
+    // (rather than replacing it, or blanking it out) instead of adding a redundant word for it.
+    if (status != nullptr && strcmp(status, Lang::Strings::LISTENING) == 0) {
+        return;
+    }
+    SpiLcdDisplay::SetStatus(status);
 }
 
 void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {

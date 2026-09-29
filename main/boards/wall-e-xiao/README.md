@@ -127,15 +127,33 @@ visualizer_mode off · log_level warn.
   backtrace once, live, to the USB serial console, and without a coredump partition that's gone
   the moment nobody was watching. A `coredump` partition (256 KB, carved out of factory's spare
   room, right before `assets`) now catches it: `esp_core_dump` writes the crashed task's registers,
-  backtrace and stack to flash, plus the whole heap/.bss/.data (`ESP_COREDUMP_CAPTURE_DRAM`) since
-  several of this board's actual crashes turned out to be memory-pressure related. Survives a
-  normal reflash (it isn't in the write-flash command above) - only a fresh crash or a full chip
-  erase clears it. Read it with `idf.py -p COM10 coredump-info -c build/xiaozhi.elf` (needs the
-  exact ELF the crashed build was compiled from - `build/xiaozhi.elf` after a matching rebuild, or
-  the one saved alongside that `walle-build-N.log` in `walle-backup` if flashing an older build).
-  One caveat: several of our real tasks have their stacks in PSRAM
-  (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`); if the *crashing* task's own stack was one of
-  those, its backtrace may come back incomplete - the register dump and other tasks' backtraces
+  backtrace and stack to flash. `espcoredump` must be an unconditional `PRIV_REQUIRES` of `main`,
+  not gated behind `if(CONFIG_BOARD_TYPE_WALL_E_XIAO)` - MINIMAL_BUILD resolves Kconfig visibility
+  in an early pass with no `CONFIG_*` values defined yet, so a board-gated require is invisible to
+  it and every `CONFIG_ESP_COREDUMP_*` line silently no-ops (confirmed the hard way: a full build
+  cycle with no errors, yet the option never reached `sdkconfig`). `ESP_COREDUMP_CAPTURE_DRAM`
+  (the whole heap/.bss/.data, not just registers and a backtrace) was tried and reverted - it
+  needs several hundred KB beyond what registers-and-backtrace alone need, more than this board's
+  internal-RAM headroom leaves room for in a 256 KB partition; the very first real crash after
+  enabling it failed to write with "Not enough space to save core dump!". Survives a normal
+  reflash (it isn't in the write-flash command above) - only a fresh crash or a full chip erase
+  clears it. Read it with `idf.py -p COM10 coredump-info -c build/xiaozhi.elf` (needs the exact ELF
+  the crashed build was compiled from - `build/xiaozhi.elf` after a matching rebuild, or the one
+  saved alongside that build in `walle-backup/builds`). One caveat: several of our real tasks have
+  their stacks in PSRAM (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`); if the *crashing* task's own
+  stack was one of those, its backtrace may come back incomplete - the register dump and other
+  tasks' backtraces are unaffected.
+- Random reboots (root cause found via the crash reports above): `WalleDisplay::CreateClock()`
+  reads `theme->text_font()` while building the idle clock's labels; if the theme's font asset
+  hadn't finished loading yet at that point in boot, `text_font` came back null, and `MakeLabel()`
+  used to skip setting a font at all rather than fail loudly. On `clock_root_` - a style-stripped
+  box on `lv_layer_top()`, so there's no cascaded font to fall back on - that label was left with a
+  permanently null font. It rendered fine (nothing to draw, nothing to lay out) until the next full
+  relayout - entering power save (`ShowIdleClock(true)`) is one - which walks into
+  `lv_font_get_glyph_width` through that null pointer: `Guru Meditation Error ... PC: 0x00000000`.
+  Fixed at the one chokepoint instead of each of `MakeLabel()`'s 7 call sites: it now always falls
+  back to `LV_FONT_DEFAULT` (compiled in - Montserrat 14) rather than silently leaving a label
+  fontless.
   are unaffected.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
   side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom

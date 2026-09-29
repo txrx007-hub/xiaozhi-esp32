@@ -61,9 +61,11 @@ lv_obj_t* MakeBox(lv_obj_t* parent, int x, int y, int w, int h, uint32_t color, 
 
 lv_obj_t* MakeLabel(lv_obj_t* parent, const lv_font_t* font, uint32_t color, const char* text) {
     lv_obj_t* label = lv_label_create(parent);
-    if (font != nullptr) {
-        lv_obj_set_style_text_font(label, font, 0);
-    }
+    // A null font (e.g. the theme's font asset hadn't finished loading yet when this label was
+    // created) must never reach LVGL: on a style-stripped parent like lv_layer_top()'s boxes,
+    // there's no cascaded font to fall back on, and a later full-layout relayout (e.g. entering
+    // power save) crashes jumping through the null font's glyph-dispatch table (PC=0 panic).
+    lv_obj_set_style_text_font(label, font != nullptr ? font : LV_FONT_DEFAULT, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
     lv_label_set_text(label, text);
     return label;

@@ -10,8 +10,10 @@
 #include <string>
 
 #include <cJSON.h>
+#include <esp_heap_caps.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_pm.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -153,6 +155,18 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
+
+    // WALL-E: live device stats for the settings page (polled every 1 s). SetCpuMhz() always sets
+    // min == max, pinning the clock rather than letting PM/DFS vary it, so the configured max is
+    // the actual running frequency, not just a ceiling - no need for esp_clk_cpu_freq()'s private
+    // header.
+    esp_pm_config_t pm_config = {};
+    esp_pm_get_configuration(&pm_config);
+    cJSON_AddNumberToObject(root, "cpu_mhz", pm_config.max_freq_mhz);
+    cJSON_AddNumberToObject(root, "ram_free_kb", heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
+    cJSON_AddNumberToObject(root, "ram_total_kb", heap_caps_get_total_size(MALLOC_CAP_INTERNAL) / 1024);
+    cJSON_AddNumberToObject(root, "psram_free_kb", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    cJSON_AddNumberToObject(root, "psram_total_kb", heap_caps_get_total_size(MALLOC_CAP_SPIRAM) / 1024);
     return SendJson(req, root);
 }
 

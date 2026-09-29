@@ -119,6 +119,11 @@ visualizer_mode off · log_level warn.
 - `Kconfig.projbuild`, `CMakeLists.txt`: board entry, board sounds and web page embedding,
   USB console and LAN web page component requirements (`esp_driver_usb_serial_jtag`,
   `esp_http_server`).
+- `managed_components/78__esp-ml307/src/esp/esp_mqtt.cc` (`EspMqtt::Disconnect()`): **not tracked
+  by git** (`managed_components/` is gitignored, refetched from upstream by the component manager)
+  - a `fullclean`/`remove_managed_components` or a fresh checkout silently drops this fix, and it
+  won't come back until manually reapplied. See the "LAN portal stops responding" note below for
+  what it fixes and the exact change to redo.
 
 ## Notes
 
@@ -183,6 +188,25 @@ visualizer_mode off · log_level warn.
   now...") - heard well after the screen had gone dark. `EnterNapNow()` now calls
   `Application::AbortSpeaking()` first, telling the server to stop sending anything further for
   that turn, so nap is actually silent.
+- LAN portal stops responding after ~20-30 min ("Could not load settings", eventually every route,
+  not just that one): `httpd_accept_conn: error in accept (23)` in the live log - ENFILE, the
+  whole system is out of file descriptors, not just the HTTP server's own pool (`lru_purge_enable`
+  can't help with that). Traced to the vendored `esp-mqtt` client: its background task sets its own
+  `run` flag false internally the moment it detects a dead connection (this board's WiFi RSSI
+  regularly dips to -70..-79 dBm, so this happens often) and only closes its transport socket
+  *after* that, right before the task exits. `esp_mqtt_client_stop()` only runs its graceful
+  stop-and-wait sequence while `run` is still true; called after the task already cleared it, it
+  just logs a warning and returns at once, without waiting for that exit-and-close to finish - and
+  `esp_mqtt_client_destroy()` right after that frees the transport via `esp_transport_destroy()`,
+  which only frees memory, never `esp_transport_close()`'s actual `close(fd)`. One socket leaked
+  (or worse, freed out from under the still-exiting task) per reconnect that races this way.
+  Mitigated in `EspMqtt::Disconnect()` (`managed_components/78__esp-ml307/src/esp/esp_mqtt.cc` -
+  see the not-tracked-by-git warning above) with a short delay before `destroy()`, taken only when
+  `stop()` reports it didn't actually run the graceful sequence, giving the task's own shutdown a
+  chance to finish first. A delay is a mitigation, not a guaranteed fix - reducing how often a
+  reconnect races the task's internal shutdown, not eliminating that race - so if the portal ever
+  stops responding again, check `!diag` or the live log for repeated `httpd_accept_conn` errors and
+  MQTT reconnect churn to confirm whether this is recurring before assuming something new broke it.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
   side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's

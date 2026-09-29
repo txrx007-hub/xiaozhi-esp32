@@ -412,9 +412,13 @@ void WalleDisplay::SetStatusDot(Dot dot) {
 }
 
 void WalleDisplay::CreateClock() {
-    auto* theme = static_cast<LvglTheme*>(current_theme_);
-    const lv_font_t* text_font = theme != nullptr && theme->text_font() ? theme->text_font()->font()
-                                                                         : nullptr;
+    // Deliberately NOT theme->text_font(): that raw lv_font_t* can be swapped out from under us
+    // later (LvglDisplay::SetTextFont() rebinds every style IT tracks when the font changes, but
+    // these clock labels live outside that system) - the resulting dangling pointer, next
+    // dereferenced by a full relayout (e.g. entering power save), is what caused a real
+    // "PC: 0x00000000" panic in lv_font_get_glyph_width. LV_FONT_DEFAULT is a static compiled-in
+    // font that's never swapped or freed, so it can't go stale.
+    const lv_font_t* text_font = LV_FONT_DEFAULT;
 
     clock_root_ = MakeBox(lv_layer_top(), 0, 0, width_, height_, kClockBg, 0);
 
@@ -537,9 +541,9 @@ void WalleDisplay::RemoveOverlayLater(lv_obj_t* obj, int delay_ms) {
 
 void WalleDisplay::ShowTestPattern(int duration_ms) {
     DisplayLockGuard lock(this);
-    auto* theme = static_cast<LvglTheme*>(current_theme_);
-    const lv_font_t* font = theme != nullptr && theme->text_font() ? theme->text_font()->font()
-                                                                    : nullptr;
+    // See CreateClock(): theme->text_font() can go stale later and must not be cached in a
+    // long-lived (or even short-lived, on lv_layer_top()) label outside the theme's own tracking.
+    const lv_font_t* font = LV_FONT_DEFAULT;
 
     lv_obj_t* root = MakeBox(lv_layer_top(), 0, 0, width_, height_, 0x000000, 0);
     lv_obj_set_style_border_color(root, lv_color_hex(0xffffff), 0);

@@ -77,8 +77,12 @@ control: a slider with a live numeric readout while dragging for a number, a dro
 on/off or multiple-choice setting, a time picker (with an Off switch) for the quiet hours, and
 a text box for the weather city. Changes save the instant you release the slider or change the
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
-button is at the bottom. Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
-`POST /api/reset`, `GET /api/status`); starts when Wi-Fi connects, stops on disconnect.
+button is at the bottom. The header also shows MAC address, uptime, current state (idle,
+listening, speaking, napping, ...) and a live LAN round-trip time, polled 3x/sec against
+`GET /api/ping` (an empty response, so the number reflects request/response overhead rather than
+payload transfer). Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
+`POST /api/reset`, `GET /api/status`, `GET /api/ping`); starts when Wi-Fi connects, stops on
+disconnect.
 
 ## USB console
 

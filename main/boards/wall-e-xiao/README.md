@@ -31,6 +31,14 @@ esptool --chip esp32s3 -p COM10 -b 921600 write-flash 0x0 bootloader.bin 0x8000 
 
 Restore the original firmware and settings: `esptool --chip esp32s3 -p COM10 write-flash 0x0 wall-e-original.bin`.
 
+After an unexplained reboot, pull the crash report it left behind (see Notes: crash reports)
+before doing anything else — flashing new firmware doesn't erase it, but a second crash overwrites
+it with the newer one:
+
+```
+idf.py -p COM10 coredump-info -c build/xiaozhi.elf
+```
+
 ## Voice (MCP tools)
 
 | Tool | Say for example |
@@ -115,6 +123,20 @@ visualizer_mode off · log_level warn.
   from every U/V byte, pulling the color back toward neutral. An earlier attempt retagged the frame
   from YUYV to UYVY, assuming a byte-order swap; that was wrong and made it worse (a banded
   green/magenta corruption, not a tint) - the sensor's own YUYV tag was correct all along.
+- Crash reports: random reboots used to leave nothing behind - the panic handler prints a
+  backtrace once, live, to the USB serial console, and without a coredump partition that's gone
+  the moment nobody was watching. A `coredump` partition (256 KB, carved out of factory's spare
+  room, right before `assets`) now catches it: `esp_core_dump` writes the crashed task's registers,
+  backtrace and stack to flash, plus the whole heap/.bss/.data (`ESP_COREDUMP_CAPTURE_DRAM`) since
+  several of this board's actual crashes turned out to be memory-pressure related. Survives a
+  normal reflash (it isn't in the write-flash command above) - only a fresh crash or a full chip
+  erase clears it. Read it with `idf.py -p COM10 coredump-info -c build/xiaozhi.elf` (needs the
+  exact ELF the crashed build was compiled from - `build/xiaozhi.elf` after a matching rebuild, or
+  the one saved alongside that `walle-build-N.log` in `walle-backup` if flashing an older build).
+  One caveat: several of our real tasks have their stacks in PSRAM
+  (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`); if the *crashing* task's own stack was one of
+  those, its backtrace may come back incomplete - the register dump and other tasks' backtraces
+  are unaffected.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
   side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's

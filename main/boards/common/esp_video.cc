@@ -19,8 +19,11 @@
 #include "display.h"
 #include "esp_jpeg_common.h"
 #include "esp_video.h"
+#include "esp_video_ioctl.h"
 #include "jpg/image_to_jpeg.h"
 #include "jpg/jpeg_to_image.h"
+
+#include <sys/time.h>
 #include "lvgl_display.h"
 #include "mcp_server.h"
 #include "system_info.h"
@@ -352,6 +355,15 @@ EspVideo::EspVideo(const esp_video_init_config_t& config) {
         video_fd_ = -1;
         sensor_format_ = 0;
         return;
+    }
+
+    // WALL-E: esp_video's own default is portMAX_DELAY - no timeout at all - so if the sensor
+    // ever stops producing frames (a stuck DVP bus, a brownout under motor load, ...) VIDIOC_DQBUF
+    // in Capture() blocks its caller forever instead of failing. A real "take a photo" request
+    // hung exactly this way, freezing the screen on whatever cue was showing at the time. Bound it.
+    struct timeval dqbuf_timeout = {.tv_sec = 3, .tv_usec = 0};
+    if (ioctl(video_fd_, VIDIOC_S_DQBUF_TIMEOUT, &dqbuf_timeout) != 0) {
+        ESP_LOGW(TAG, "VIDIOC_S_DQBUF_TIMEOUT failed; camera capture has no timeout");
     }
 
 #ifdef CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE

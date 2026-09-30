@@ -92,6 +92,10 @@ private:
     DeviceState state_ = kDeviceStateUnknown;
     bool napping_ = false;
     bool pending_nap_ = false;
+    // Ignore a wake word detected before this time even once actually napping: this board has no
+    // echo cancellation, and trailing/buffered playback of the nap confirmation can still reach
+    // the mic for a moment after EnterNapNow() itself has already run.
+    int64_t nap_wake_guard_until_us_ = 0;
     bool pending_deep_sleep_ = false;
     int64_t pending_deep_sleep_s_ = 0;
     int64_t pending_deadline_us_ = 0;

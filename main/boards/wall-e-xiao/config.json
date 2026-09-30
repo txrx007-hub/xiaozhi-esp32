@@ -21,7 +21,8 @@
                 "CONFIG_CAMERA_OV5640_AUTO_DETECT_DVP_INTERFACE_SENSOR=y",
                 "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y",
                 "CONFIG_ESP_COREDUMP_CHECK_BOOT=y",
-                "CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=96"
+                "CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=96",
+                "CONFIG_LWIP_MAX_SOCKETS=16"
             ]
         }
     ]

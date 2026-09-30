@@ -204,9 +204,25 @@ visualizer_mode off · log_level warn.
   see the not-tracked-by-git warning above) with a short delay before `destroy()`, taken only when
   `stop()` reports it didn't actually run the graceful sequence, giving the task's own shutdown a
   chance to finish first. A delay is a mitigation, not a guaranteed fix - reducing how often a
-  reconnect races the task's internal shutdown, not eliminating that race - so if the portal ever
-  stops responding again, check `!diag` or the live log for repeated `httpd_accept_conn` errors and
-  MQTT reconnect churn to confirm whether this is recurring before assuming something new broke it.
+  reconnect races the task's internal shutdown, not eliminating that race.
+
+  That MQTT race isn't the only way to hit ENFILE, though, and turned out not to be the main one:
+  `CONFIG_LWIP_MAX_SOCKETS` (upstream default 10 - `MEMP_NUM_NETCONN` in
+  `components/lwip/port/include/lwipopts.h` is literally `#define`d to it, confirmed by reading
+  lwip's own `alloc_socket()`/`lwip_socket()` in `sockets.c`, which is exactly what sets `ENFILE`
+  when the table is full) is a hard, global ceiling on *every* socket the device has open at once -
+  and `esp_http_server`'s own `HTTPD_DEFAULT_CONFIG()` reserves up to 7 of those 10 for the LAN
+  portal alone (`max_open_sockets`, left at its default in `walle_web.cc`), before counting the
+  persistent MQTT connection (1) and the UDP audio channel a live conversation opens (1). That's
+  10 of 10 with zero margin for a weather check or a `self.camera.take_photo` upload to even get a
+  socket - confirmed by a live capture of `self.camera.take_photo` failing with
+  `EspTcp: Failed to create socket ... native=23` (ENFILE) well under two minutes after a fresh
+  boot, too fast for the MQTT race above to have leaked enough to explain it alone. Fixed at the
+  root instead of patched around: `CONFIG_LWIP_MAX_SOCKETS=16` gives real headroom over that ~10
+  socket peak rather than running right at the edge of it. Note that polling the settings page more
+  (added for live CPU/RAM/PSRAM/ping - see above) narrows this same margin further, so if
+  ENFILE-style failures ever come back, check whether this number needs to go up again before
+  reaching for another point patch.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
   side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's

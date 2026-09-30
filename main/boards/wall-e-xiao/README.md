@@ -188,6 +188,16 @@ visualizer_mode off · log_level warn.
   now...") - heard well after the screen had gone dark. `EnterNapNow()` now calls
   `Application::AbortSpeaking()` first, telling the server to stop sending anything further for
   that turn, so nap is actually silent.
+- Nap immediately cancelled itself: confirms it's napping, chirps, pops right back to the idle
+  eyes. Confirmed live - every nap request logged `Wake word detected: Jarvis` with the device
+  still in the *Speaking* state, i.e. WakeNet caught the device's own nap confirmation through the
+  mic (no echo cancellation on this board - the flip side of "interrupt by saying Jarvis" while it
+  talks, which is intentional elsewhere). `OnWakeWordDetected()` unconditionally cleared
+  `pending_nap_`, called `ExitNap()` and played the chirp on every detection, self-triggered or
+  not. Fixed by ignoring a detection while a nap request is still pending (that narrow window
+  between asking to nap and the confirmation finishing) instead of treating it as a real interrupt
+  - a genuine "wake up" that soon after asking to nap is also an unusual pattern anyway; waiting
+  for nap to actually engage and saying the wake word normally still works fine.
 - LAN portal stops responding after ~20-30 min ("Could not load settings", eventually every route,
   not just that one): `httpd_accept_conn: error in accept (23)` in the live log - ENFILE, the
   whole system is out of file descriptors, not just the HTTP server's own pool (`lru_purge_enable`

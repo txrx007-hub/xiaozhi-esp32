@@ -296,6 +296,20 @@ WalleAudioCodec* WallEBoard::walle_codec() {
 AudioCodec* WallEBoard::GetAudioCodec() { return walle_codec(); }
 
 bool WallEBoard::OnWakeWordDetected(const std::string& wake_word) {
+    if (pending_nap_) {
+        // WALL-E: this board has no echo cancellation (no reference signal for the amp - see the
+        // README's "interrupt by saying Jarvis" note, the other side of this same trade-off), and
+        // the nap confirmation ("okay, going to nap now") reliably self-triggers WakeNet while
+        // it's still being spoken - heard through the mic, not said by the user (confirmed live:
+        // every nap request logs "Wake word detected" with the device still in the Speaking
+        // state). That cancelled the pending nap, played the chirp, and popped back to the idle
+        // eyes right after it had just confirmed napping. A genuine "wake up" this soon after
+        // asking to nap is also an unusual pattern anyway - waiting for nap to actually engage,
+        // then saying the wake word normally, works fine - so detections in this narrow window
+        // are treated as self-echo instead of a real interrupt.
+        ESP_LOGI(TAG, "Wake word ignored: nap request is pending (likely self-echo, no AEC)");
+        return true;
+    }
     ESP_LOGI(TAG, "Wake word: %s", wake_word.c_str());
     pending_nap_ = false;
     StopRinging();

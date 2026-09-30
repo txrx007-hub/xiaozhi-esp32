@@ -296,18 +296,19 @@ WalleAudioCodec* WallEBoard::walle_codec() {
 AudioCodec* WallEBoard::GetAudioCodec() { return walle_codec(); }
 
 bool WallEBoard::OnWakeWordDetected(const std::string& wake_word) {
-    if (pending_nap_) {
+    if (pending_nap_ || (napping_ && NowUs() < nap_wake_guard_until_us_)) {
         // WALL-E: this board has no echo cancellation (no reference signal for the amp - see the
         // README's "interrupt by saying Jarvis" note, the other side of this same trade-off), and
-        // the nap confirmation ("okay, going to nap now") reliably self-triggers WakeNet while
-        // it's still being spoken - heard through the mic, not said by the user (confirmed live:
-        // every nap request logs "Wake word detected" with the device still in the Speaking
-        // state). That cancelled the pending nap, played the chirp, and popped back to the idle
-        // eyes right after it had just confirmed napping. A genuine "wake up" this soon after
-        // asking to nap is also an unusual pattern anyway - waiting for nap to actually engage,
-        // then saying the wake word normally, works fine - so detections in this narrow window
-        // are treated as self-echo instead of a real interrupt.
-        ESP_LOGI(TAG, "Wake word ignored: nap request is pending (likely self-echo, no AEC)");
+        // the nap confirmation ("okay, going to nap now") reliably self-triggers WakeNet - heard
+        // through the mic, not said by the user (confirmed live: every nap request logs "Wake word
+        // detected" with the device still in the Speaking state) - either while still pending, or
+        // for a few seconds after EnterNapNow() itself already ran (buffered/trailing playback).
+        // That cancelled the pending nap or immediately exited an active one, played the chirp,
+        // and popped back to the idle eyes right after it had just confirmed napping. A genuine
+        // "wake up" this soon after asking to nap is also an unusual pattern anyway - waiting a
+        // few seconds and saying the wake word normally still works fine - so detections in this
+        // window are treated as self-echo instead of a real interrupt.
+        ESP_LOGI(TAG, "Wake word ignored: nap self-echo guard active (likely self-echo, no AEC)");
         return true;
     }
     ESP_LOGI(TAG, "Wake word: %s", wake_word.c_str());
@@ -398,6 +399,13 @@ void WallEBoard::EnterNapNow() {
     display_->SetBlank(true);
     SetCpuMhz(160);
     napping_ = true;
+    // WALL-E: AbortSpeaking() stops the server sending more, but whatever was already buffered
+    // for playback (or its acoustic decay in the room) can still reach the mic for a moment after
+    // this point - confirmed live: self-triggering the wake word still happened here even with the
+    // pending_nap_ guard in OnWakeWordDetected(), meaning it landed after that guard had already
+    // cleared. A few seconds of ignoring the wake word right as nap begins covers that tail.
+    constexpr int64_t kNapWakeGuardUs = 4LL * 1000 * 1000;
+    nap_wake_guard_until_us_ = NowUs() + kNapWakeGuardUs;
     ESP_LOGI(TAG, "Napping: screen off, wake word and Wi-Fi on");
 }
 

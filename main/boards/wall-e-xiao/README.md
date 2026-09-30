@@ -194,10 +194,16 @@ visualizer_mode off · log_level warn.
   mic (no echo cancellation on this board - the flip side of "interrupt by saying Jarvis" while it
   talks, which is intentional elsewhere). `OnWakeWordDetected()` unconditionally cleared
   `pending_nap_`, called `ExitNap()` and played the chirp on every detection, self-triggered or
-  not. Fixed by ignoring a detection while a nap request is still pending (that narrow window
-  between asking to nap and the confirmation finishing) instead of treating it as a real interrupt
-  - a genuine "wake up" that soon after asking to nap is also an unusual pattern anyway; waiting
-  for nap to actually engage and saying the wake word normally still works fine.
+  not. First fix ignored a detection while a nap request was still pending, but that wasn't
+  enough by itself - confirmed live, it still self-triggered even with that guard, meaning the
+  echo (buffered/trailing playback, or just its acoustic decay in the room) was reaching the mic
+  a moment *after* `EnterNapNow()` had already run and cleared `pending_nap_`. `EnterNapNow()` now
+  also sets a ~4 s guard (`nap_wake_guard_until_us_`) that's checked alongside `pending_nap_`, so
+  a detection is ignored for a few seconds after nap actually engages too, not just before. A
+  genuine "wake up" that soon after asking to nap is also an unusual pattern anyway; waiting a few
+  seconds and saying the wake word normally still works fine. Note: what the device actually says
+  when asked to nap (and whether it says its own name) is decided server-side by the LLM, not by
+  this firmware - there's no local text to edit for that part.
 - LAN portal stops responding after ~20-30 min ("Could not load settings", eventually every route,
   not just that one): `httpd_accept_conn: error in accept (23)` in the live log - ENFILE, the
   whole system is out of file descriptors, not just the HTTP server's own pool (`lru_purge_enable`

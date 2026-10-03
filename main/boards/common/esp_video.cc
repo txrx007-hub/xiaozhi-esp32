@@ -423,7 +423,26 @@ void EspVideo::SetExplainUrl(const std::string& url, const std::string& token) {
     explain_token_ = token;
 }
 
+bool EspVideo::ProbeFrame() {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    if (!streaming_on_ || video_fd_ < 0) {
+        return false;
+    }
+    struct v4l2_buffer buf = {};
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    if (ioctl(video_fd_, VIDIOC_DQBUF, &buf) != 0) {
+        return false;
+    }
+    if (ioctl(video_fd_, VIDIOC_QBUF, &buf) != 0) {
+        ESP_LOGE(TAG, "ProbeFrame: VIDIOC_QBUF failed");
+        return false;
+    }
+    return true;
+}
+
 bool EspVideo::Capture() {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
     }

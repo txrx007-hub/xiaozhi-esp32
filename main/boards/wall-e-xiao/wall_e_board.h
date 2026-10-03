@@ -74,7 +74,8 @@ private:
     void ApplyVolumeCap();
     void ApplyWakeThreshold(bool speaking);
     void StartRinging(const std::string& label);
-    void Tick();  // main task, once per second
+    void Tick();
+    void CameraBootProbe();  // main task, once per second
     void UpdateStatusDot();
     void SetCpuMhz(int mhz);
     void EnterNapNow();
@@ -87,6 +88,7 @@ private:
     PowerSaveTimer* idle_timer_ = nullptr;
     esp_timer_handle_t tick_timer_ = nullptr;
     esp_timer_handle_t listen_poll_timer_ = nullptr;
+    esp_timer_handle_t camera_probe_timer_ = nullptr;
     bool screensaver_requested_ = false;
 
     DeviceState state_ = kDeviceStateUnknown;

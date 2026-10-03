@@ -18,6 +18,7 @@
 #include "walle_settings.h"
 #include "walle_timers.h"
 #include "walle_weather.h"
+#include "walle_web.h"
 
 #define TAG "WalleTools"
 
@@ -355,6 +356,22 @@ void RegisterWalleTools(WallEBoard& board) {
     mcp.AddTool("self.system.get_standby", "Tell whether Jarvis is napping.", PropertyList(),
                 [](const PropertyList&) -> ToolResult {
                     auto& board = WallEBoard::Get(); return board.IsNapping(); });
+
+    // Upstream's tool (22 boards), plus stopping our LAN settings page first: it also listens on
+    // port 80 (and httpd's default control port), where the WiFi setup page must start.
+    mcp.AddTool("self.system.reconfigure_wifi",
+                "End this conversation and enter WiFi configuration mode (Jarvis opens its own "
+                "hotspot to pick a new network).\n**CAUTION** You must ask the user to confirm "
+                "this action.",
+                PropertyList(), [](const PropertyList&) -> ToolResult {
+                    Application::GetInstance().Schedule([]() {
+                        auto& board = WallEBoard::Get();
+                        board.ExitNap();
+                        walle_web::Stop();
+                        board.EnterWifiConfigMode();
+                    });
+                    return true;
+                });
 
     mcp.AddTool("self.system.deep_sleep",
                 "Deep sleep to save battery: everything turns off, including Wi-Fi and the wake "

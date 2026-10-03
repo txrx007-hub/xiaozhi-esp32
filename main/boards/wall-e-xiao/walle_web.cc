@@ -106,7 +106,7 @@ cJSON* SettingToJson(const WalleSettings::Def& def) {
         case WalleSettings::Kind::kVisualizerMode: {
             cJSON_AddStringToObject(item, "value", settings.FormatCurrent(def).c_str());
             cJSON* options = cJSON_AddArrayToObject(item, "options");
-            for (const char* mode : {"off", "winamp"}) {
+            for (const char* mode : walle_spectrum::kModeNames) {
                 cJSON_AddItemToArray(options, cJSON_CreateString(mode));
             }
             break;

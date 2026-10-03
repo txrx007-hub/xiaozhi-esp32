@@ -91,6 +91,8 @@ private:
     esp_timer_handle_t listen_poll_timer_ = nullptr;
     esp_timer_handle_t camera_probe_timer_ = nullptr;
     bool screensaver_requested_ = false;
+    bool screensaver_spoke_ = false;
+    int64_t screensaver_deadline_us_ = 0;
 
     DeviceState state_ = kDeviceStateUnknown;
     bool napping_ = false;

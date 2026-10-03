@@ -11,13 +11,21 @@ constexpr int kBands = 32;
 // One analysis window's result: 0-255 per band, plus a slow-decaying peak-hold value per band.
 // Deliberately tiny (64 bytes) so it can be copied under a lock at ~20-25 Hz for free, matching
 // the struct Wall-E's build was sketched around.
+constexpr int kWavePoints = 64;
+
 struct Frame {
     uint8_t bands[kBands] = {};
     uint8_t peaks[kBands] = {};
+    // Oscilloscope: the same window decimated to kWavePoints samples, auto-scaled to -127..127
+    // (quiet stays flat: the scale never boosts below a fixed floor).
+    int8_t wave[kWavePoints] = {};
 };
 
-// Selectable via self.display.set_visualizer / setting visualizer_mode. More modes (mirror_bars,
-// circular, ...) can be added later without changing Frame or the FFT/analysis side at all.
-enum class Mode { kOff, kWinamp };
+// Selectable via self.display.set_visualizer / setting visualizer_mode; the index is the stored
+// setting value, so only ever append. winamp/scope/mouth draw in the strip under the eyes;
+// radial/vu/orb replace the eyes with a square canvas while Jarvis speaks.
+enum class Mode { kOff, kWinamp, kScope, kRadial, kVu, kMouth, kOrb };
+constexpr const char* kModeNames[] = {"off", "winamp", "scope", "radial", "vu", "mouth", "orb"};
+constexpr int kModeCount = sizeof(kModeNames) / sizeof(kModeNames[0]);
 
 }  // namespace walle_spectrum

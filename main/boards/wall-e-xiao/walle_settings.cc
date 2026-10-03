@@ -8,6 +8,7 @@
 #include <esp_log.h>
 
 #include "settings.h"
+#include "walle_spectrum.h"
 
 #define TAG "WalleSettings"
 
@@ -15,10 +16,9 @@ namespace {
 
 constexpr const char* kNamespace = "walle";
 constexpr const char* kLogLevels[] = {"error", "warn", "info", "debug"};
-// self.display.set_visualizer. Only "off" and "winamp" exist today; more modes (mirror_bars,
-// circular, ...) are a one-line addition here once winamp has been seen running on hardware.
-constexpr const char* kVisualizerModes[] = {"off", "winamp"};
-constexpr int kVisualizerModeCount = sizeof(kVisualizerModes) / sizeof(kVisualizerModes[0]);
+// self.display.set_visualizer; the names live in walle_spectrum.h next to the Mode enum.
+constexpr const char* const* kVisualizerModes = walle_spectrum::kModeNames;
+constexpr int kVisualizerModeCount = walle_spectrum::kModeCount;
 
 std::string Trim(const std::string& text) {
     size_t start = 0;
@@ -74,7 +74,7 @@ WalleSettings::WalleSettings() {
         {"idle_clock_min", Kind::kInt, 0, 120, 5, "show the big clock after this many idle minutes (0 = off)"},
         {"weather_city", Kind::kText, 0, 40, 0, "city for the weather, for example Amsterdam, or off"},
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
-         "what the screen shows in place of the level bars while Jarvis speaks: off or winamp"},
+         "what the screen shows while Jarvis speaks: off, winamp, scope, radial, vu, mouth or orb"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
 
@@ -174,7 +174,7 @@ std::string WalleSettings::Range(const Def& def) const {
         case Kind::kLogLevel:
             return "error, warn, info, debug";
         case Kind::kVisualizerMode:
-            return "off, winamp";
+            return "off, winamp, scope, radial, vu, mouth, orb";
         case Kind::kBool:
             return "0 or 1";
         case Kind::kText:
@@ -271,7 +271,7 @@ std::expected<int, std::string> WalleSettings::Parse(const Def& def,
                     return i;
                 }
             }
-            return std::unexpected("visualizer_mode must be off or winamp.");
+            return std::unexpected("visualizer_mode must be off, winamp, scope, radial, vu, mouth or orb.");
 
         default:
             if (!ParseInt(text, value)) {

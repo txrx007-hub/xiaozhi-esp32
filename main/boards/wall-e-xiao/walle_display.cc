@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_random.h>
@@ -92,6 +93,53 @@ lv_color_t WinampBandColor(uint8_t value) {
     return lv_color_hex(0x00ff00);
 }
 
+// Speaking visualizer geometry. The strip modes (winamp, scope, mouth) sit where the level bars
+// are, between the eyes and the subtitle bar; the canvas modes cover the eyes with a square,
+// leaving the status line on top and the subtitle bar at the bottom visible.
+constexpr int kStripCenterY = 240 - 57;
+constexpr int kScopeWidth = 192;
+constexpr int kScopeHeight = 34;
+constexpr int kMouthWidth = 110;
+constexpr int kCanvasSize = 176;
+constexpr int kCanvasTop = 28;
+constexpr int kCanvasCenter = kCanvasSize / 2;
+constexpr uint32_t kVizCyan = 0x20e0e0;
+constexpr float kPi = 3.14159265f;
+
+void SetShown(lv_obj_t* obj, bool shown) {
+    if (obj == nullptr || lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == !shown) {
+        return;
+    }
+    if (shown) {
+        lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void DrawLine(lv_layer_t* layer, lv_draw_line_dsc_t* dsc, float x1, float y1, float x2, float y2) {
+    dsc->p1.x = static_cast<int32_t>(lroundf(x1));
+    dsc->p1.y = static_cast<int32_t>(lroundf(y1));
+    dsc->p2.x = static_cast<int32_t>(lroundf(x2));
+    dsc->p2.y = static_cast<int32_t>(lroundf(y2));
+    lv_draw_line(layer, dsc);
+}
+
+// Filled circle (an arc as wide as its radius) or a ring (thinner width).
+void DrawCircle(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32_t color,
+                int start_deg = 0, int end_deg = 360) {
+    lv_draw_arc_dsc_t arc;
+    lv_draw_arc_dsc_init(&arc);
+    arc.center.x = cx;
+    arc.center.y = cy;
+    arc.radius = static_cast<uint16_t>(std::max(1, radius));
+    arc.width = std::max(1, width);
+    arc.start_angle = start_deg;
+    arc.end_angle = end_deg;
+    arc.color = lv_color_hex(color);
+    lv_draw_arc(layer, &arc);
+}
+
 }  // namespace
 
 WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
@@ -147,6 +195,7 @@ void WalleDisplay::SetupUI() {
     DisplayLockGuard lock(this);
     // Order matters on the top layer: bars under the clock, status dot above everything.
     CreateRibbon();
+    CreateVisuals();
     CreateClock();
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
     lv_timer_create(
@@ -237,6 +286,7 @@ void WalleDisplay::UpdateRibbon() {
             lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
             spectrum_visible_ = false;
         }
+        UpdateVisual(walle_spectrum::Mode::kOff);
         return;
     }
 
@@ -248,24 +298,28 @@ void WalleDisplay::UpdateRibbon() {
         theme != nullptr && lv_color_brightness(theme->background_color()) < 128;
     const lv_color_t color = lv_color_hex(dark_background ? 0x2ee6d6 : 0x1d9e75);
 
-    const bool winamp =
-        mode == Ribbon::kOutput && visualizer_mode_.load() == walle_spectrum::Mode::kWinamp;
-    if (winamp) {
+    const walle_spectrum::Mode visual_mode = visualizer_mode_.load();
+    if (mode == Ribbon::kOutput && visual_mode != walle_spectrum::Mode::kOff) {
         if (ribbon_visible_) {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
             ribbon_visible_ = false;
         }
-        UpdateSpectrumBars();
-        if (!spectrum_visible_) {
-            lv_obj_remove_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
-            spectrum_visible_ = true;
+        const bool winamp = visual_mode == walle_spectrum::Mode::kWinamp;
+        if (winamp) {
+            UpdateSpectrumBars();
         }
+        if (winamp != spectrum_visible_) {
+            SetShown(spectrum_root_, winamp);
+            spectrum_visible_ = winamp;
+        }
+        UpdateVisual(visual_mode);
         return;
     }
     if (spectrum_visible_) {
         lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
         spectrum_visible_ = false;
     }
+    UpdateVisual(walle_spectrum::Mode::kOff);
 
     int rms = 0;
     if (mode == Ribbon::kOutput && output_rms_) {
@@ -293,6 +347,233 @@ void WalleDisplay::UpdateRibbon() {
         lv_obj_remove_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
         ribbon_visible_ = true;
     }
+}
+
+void WalleDisplay::CreateVisuals() {
+    // Oscilloscope: one polyline across the strip.
+    scope_line_ = lv_line_create(lv_layer_top());
+    lv_obj_set_pos(scope_line_, (width_ - kScopeWidth) / 2, kStripCenterY - kScopeHeight / 2);
+    lv_obj_set_style_line_width(scope_line_, 2, 0);
+    lv_obj_set_style_line_color(scope_line_, lv_color_hex(kVizCyan), 0);
+    lv_obj_set_style_line_rounded(scope_line_, true, 0);
+    for (int j = 0; j < walle_spectrum::kWavePoints; ++j) {
+        scope_points_[j].x = j * (kScopeWidth - 1) / (walle_spectrum::kWavePoints - 1);
+        scope_points_[j].y = kScopeHeight / 2;
+    }
+    lv_line_set_points(scope_line_, scope_points_, walle_spectrum::kWavePoints);
+    lv_obj_remove_flag(scope_line_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(scope_line_, LV_OBJ_FLAG_HIDDEN);
+
+    // Robot mouth: an outlined pill under the eyes that opens with the voice, with 4 teeth.
+    mouth_root_ = MakeBox(lv_layer_top(), (width_ - kMouthWidth) / 2, kStripCenterY - 3,
+                          kMouthWidth, 6, kVizCyan, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_bg_opa(mouth_root_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(mouth_root_, 4, 0);
+    lv_obj_set_style_border_color(mouth_root_, lv_color_hex(kVizCyan), 0);
+    lv_obj_set_style_clip_corner(mouth_root_, true, 0);
+    for (int k = 0; k < 4; ++k) {
+        mouth_teeth_[k] = MakeBox(mouth_root_, (k + 1) * kMouthWidth / 5 - 1, 0, 2, 2, kVizCyan, 0);
+    }
+    lv_obj_add_flag(mouth_root_, LV_OBJ_FLAG_HIDDEN);
+
+    // Square canvas for radial / vu / orb; its pixel buffer is allocated on first use.
+    viz_canvas_ = lv_canvas_create(lv_layer_top());
+    lv_obj_set_pos(viz_canvas_, (width_ - kCanvasSize) / 2, kCanvasTop);
+    lv_obj_remove_flag(viz_canvas_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(viz_canvas_, LV_OBJ_FLAG_HIDDEN);
+}
+
+bool WalleDisplay::EnsureCanvasBuffer() {
+    if (viz_canvas_buf_ != nullptr) {
+        return true;
+    }
+    const size_t size =
+        LV_CANVAS_BUF_SIZE(kCanvasSize, kCanvasSize, 16, LV_DRAW_BUF_STRIDE_ALIGN);
+    viz_canvas_buf_ = static_cast<uint8_t*>(
+        heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (viz_canvas_buf_ == nullptr) {
+        ESP_LOGE(TAG, "No memory for the %u byte visualizer canvas", (unsigned)size);
+        return false;
+    }
+    lv_canvas_set_buffer(viz_canvas_, viz_canvas_buf_, kCanvasSize, kCanvasSize,
+                         LV_COLOR_FORMAT_RGB565);
+    return true;
+}
+
+void WalleDisplay::UpdateVisual(walle_spectrum::Mode mode) {
+    using walle_spectrum::Mode;
+    const bool canvas_mode = mode == Mode::kRadial || mode == Mode::kVu || mode == Mode::kOrb;
+    const bool canvas_ok = canvas_mode && EnsureCanvasBuffer();
+    SetShown(scope_line_, mode == Mode::kScope);
+    SetShown(mouth_root_, mode == Mode::kMouth);
+    SetShown(viz_canvas_, canvas_ok);
+    if (mode == Mode::kOff || mode == Mode::kWinamp || (canvas_mode && !canvas_ok)) {
+        viz_level_ = 0.0f;
+        vu_needle_ = 0.0f;
+        for (auto& b : viz_bands_) {
+            b = 0.0f;
+        }
+        return;
+    }
+
+    // Inputs: the 32 bands (fast attack, slower fall) and the overall speaker level, -50..-5 dBFS
+    // mapped to 0..1 (same idea as the plain ribbon's scale).
+    walle_spectrum::Frame frame;
+    if (spectrum_source_) {
+        frame = spectrum_source_();
+    }
+    for (int i = 0; i < walle_spectrum::kBands; ++i) {
+        const float v = frame.bands[i];
+        viz_bands_[i] = v > viz_bands_[i] ? v : viz_bands_[i] * 0.8f + v * 0.2f;
+    }
+    const int rms = output_rms_ ? output_rms_() : 0;
+    const float db = rms > 0 ? 20.0f * log10f(rms / 32768.0f) : -90.0f;
+    const float target = std::clamp((db + 50.0f) / 45.0f, 0.0f, 1.0f);
+    viz_level_ += (target - viz_level_) * (target > viz_level_ ? 0.6f : 0.2f);
+
+    switch (mode) {
+        case Mode::kScope:
+            for (int j = 0; j < walle_spectrum::kWavePoints; ++j) {
+                scope_points_[j].y = kScopeHeight / 2 - frame.wave[j] * (kScopeHeight / 2 - 1) / 127;
+            }
+            lv_line_set_points(scope_line_, scope_points_, walle_spectrum::kWavePoints);
+            break;
+        case Mode::kMouth: {
+            const int h = 6 + static_cast<int>(viz_level_ * 26.0f);
+            lv_obj_set_height(mouth_root_, h);
+            lv_obj_set_y(mouth_root_, kStripCenterY - h / 2);
+            for (auto* tooth : mouth_teeth_) {
+                SetShown(tooth, h > 14);
+                lv_obj_set_height(tooth, std::max(2, h - 8));
+            }
+            break;
+        }
+        case Mode::kRadial:
+            DrawRadial();
+            break;
+        case Mode::kVu:
+            DrawVu();
+            break;
+        case Mode::kOrb:
+            DrawOrb();
+            break;
+        default:
+            break;
+    }
+}
+
+void WalleDisplay::DrawRadial() {
+    lv_canvas_fill_bg(viz_canvas_, lv_color_black(), LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(viz_canvas_, &layer);
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.width = 3;
+    line.round_start = 1;
+    line.round_end = 1;
+    constexpr int kSpokes = walle_spectrum::kBands * 2;  // mirrored: low bands at the top and bottom
+    for (int i = 0; i < kSpokes; ++i) {
+        const int band = i < walle_spectrum::kBands ? i : kSpokes - 1 - i;
+        const float b = viz_bands_[band] / 255.0f;
+        const float a = i * 2.0f * kPi / kSpokes - kPi / 2.0f;
+        const float r0 = 30.0f;
+        const float r1 = r0 + 4.0f + b * 50.0f;
+        line.color = lv_color_hex(i % 2 ? kVizCyan : 0x20a8e0);
+        DrawLine(&layer, &line, kCanvasCenter + cosf(a) * r0, kCanvasCenter + sinf(a) * r0,
+                 kCanvasCenter + cosf(a) * r1, kCanvasCenter + sinf(a) * r1);
+    }
+    const int core = 12 + static_cast<int>(viz_level_ * 12.0f);
+    DrawCircle(&layer, kCanvasCenter, kCanvasCenter, core, core, kVizCyan);
+    lv_canvas_finish_layer(viz_canvas_, &layer);
+}
+
+void WalleDisplay::DrawVu() {
+    // Classic analog meter: cream face, scale arc with a red zone, ticks, a needle with ballistics
+    // (rises quickly, falls slowly). LVGL angles: 0 = right, clockwise; 270 = straight up.
+    constexpr int kPivotX = kCanvasCenter;
+    constexpr int kPivotY = 150;
+    constexpr int kStartDeg = 215;
+    constexpr int kSweepDeg = 110;
+    vu_needle_ += (viz_level_ - vu_needle_) * (viz_level_ > vu_needle_ ? 0.35f : 0.12f);
+
+    lv_canvas_fill_bg(viz_canvas_, lv_color_hex(0x0b0b0b), LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(viz_canvas_, &layer);
+
+    lv_draw_rect_dsc_t face;
+    lv_draw_rect_dsc_init(&face);
+    face.bg_color = lv_color_hex(0xe8dcb0);
+    face.radius = 12;
+    lv_area_t face_area = {8, 22, kCanvasSize - 9, 140};
+    lv_draw_rect(&layer, &face, &face_area);
+
+    DrawCircle(&layer, kPivotX, kPivotY, 104, 2, 0x222222, kStartDeg, kStartDeg + kSweepDeg);
+    DrawCircle(&layer, kPivotX, kPivotY, 104, 5, 0xc02020, kStartDeg + 85, kStartDeg + kSweepDeg);
+
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.width = 2;
+    for (int k = 0; k <= 10; ++k) {
+        const float a = (kStartDeg + k * kSweepDeg / 10.0f) * kPi / 180.0f;
+        const float r_in = k % 5 == 0 ? 86.0f : 92.0f;
+        line.color = lv_color_hex(k >= 8 ? 0xc02020 : 0x222222);
+        DrawLine(&layer, &line, kPivotX + cosf(a) * r_in, kPivotY + sinf(a) * r_in,
+                 kPivotX + cosf(a) * 100.0f, kPivotY + sinf(a) * 100.0f);
+    }
+
+    lv_draw_label_dsc_t label;
+    lv_draw_label_dsc_init(&label);
+    label.text = "VU";
+    label.font = LV_FONT_DEFAULT;
+    label.color = lv_color_hex(0x222222);
+    label.align = LV_TEXT_ALIGN_CENTER;
+    lv_area_t label_area = {kPivotX - 30, 104, kPivotX + 30, 124};
+    lv_draw_label(&layer, &label, &label_area);
+
+    const float a = (kStartDeg + vu_needle_ * kSweepDeg) * kPi / 180.0f;
+    line.width = 3;
+    line.round_end = 1;
+    line.color = lv_color_hex(0x111111);
+    DrawLine(&layer, &line, kPivotX, kPivotY, kPivotX + cosf(a) * 108.0f,
+             kPivotY + sinf(a) * 108.0f);
+    DrawCircle(&layer, kPivotX, kPivotY, 8, 8, 0x333333);
+    lv_canvas_finish_layer(viz_canvas_, &layer);
+}
+
+void WalleDisplay::DrawOrb() {
+    // Three wobbling rings, outer (dim) to inner (bright); each ring's radius follows a different
+    // slice of the spectrum, scaled by how loud Jarvis is right now.
+    static constexpr uint32_t kRingColors[3] = {0x0c4048, 0x1aa8b8, kVizCyan};
+    constexpr int kSegments = 48;
+    const float t = esp_timer_get_time() / 1000000.0f;
+    lv_canvas_fill_bg(viz_canvas_, lv_color_black(), LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(viz_canvas_, &layer);
+    lv_draw_line_dsc_t line;
+    lv_draw_line_dsc_init(&line);
+    line.width = 3;
+    line.round_start = 1;
+    line.round_end = 1;
+    for (int ring = 0; ring < 3; ++ring) {
+        const int k = 2 - ring;  // k = 2 is the outermost
+        line.color = lv_color_hex(kRingColors[ring]);
+        float prev_x = 0.0f, prev_y = 0.0f;
+        for (int q = 0; q <= kSegments; ++q) {
+            const float a = q * 2.0f * kPi / kSegments;
+            const float band = viz_bands_[(q + k * 5) % walle_spectrum::kBands] / 255.0f;
+            float r = 30.0f + k * 16.0f + band * 18.0f * (0.4f + viz_level_) +
+                      sinf(a * 3.0f + t * (2.0f + k)) * 3.0f;
+            r = std::min(r, kCanvasCenter - 3.0f);
+            const float x = kCanvasCenter + cosf(a) * r;
+            const float y = kCanvasCenter + sinf(a) * r;
+            if (q > 0) {
+                DrawLine(&layer, &line, prev_x, prev_y, x, y);
+            }
+            prev_x = x;
+            prev_y = y;
+        }
+    }
+    lv_canvas_finish_layer(viz_canvas_, &layer);
 }
 
 void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
@@ -364,15 +645,6 @@ void WalleDisplay::SetChatMessage(const char* role, const char* content) {
         const int64_t duration_ms = std::clamp<int64_t>(70LL * static_cast<int64_t>(length), 2500, 9000);
         esp_timer_start_once(subtitle_clear_timer_, duration_ms * 1000);
     }
-}
-
-void WalleDisplay::SetStatus(const char* status) {
-    // The closed eyes already show listening; leave whatever status text was already there
-    // (rather than replacing it, or blanking it out) instead of adding a redundant word for it.
-    if (status != nullptr && strcmp(status, Lang::Strings::LISTENING) == 0) {
-        return;
-    }
-    SpiLcdDisplay::SetStatus(status);
 }
 
 void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {

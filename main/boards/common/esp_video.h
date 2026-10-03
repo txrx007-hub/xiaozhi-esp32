@@ -3,6 +3,7 @@
 
 #include <lvgl.h>
 #include <memory>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -44,6 +45,7 @@ private:
     std::string explain_url_;
     std::string explain_token_;
     std::thread encoder_thread_;
+    std::mutex capture_mutex_;  // WALL-E: serializes Capture() and ProbeFrame() on video_fd_
 
 public:
     EspVideo(const esp_video_init_config_t& config);
@@ -51,6 +53,9 @@ public:
 
     virtual void SetExplainUrl(const std::string& url, const std::string& token);
     virtual bool Capture();
+    // WALL-E: quiet "is the sensor delivering frames at all" check - one DQBUF/QBUF, no copy, no
+    // preview. True if a frame arrived within the DQBUF timeout (3 s).
+    bool ProbeFrame();
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;
     virtual bool SetVFlip(bool enabled) override;

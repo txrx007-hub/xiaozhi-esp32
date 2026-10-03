@@ -12,6 +12,7 @@
 #include <esp_lcd_panel_vendor.h>
 #include <esp_log.h>
 #include <esp_pm.h>
+#include <esp_system.h>
 #include <esp_sleep.h>
 
 #include "application.h"
@@ -115,6 +116,20 @@ WallEBoard::WallEBoard() : boot_button_(BOOT_BUTTON_GPIO) {
     poll.arg = this;
     poll.name = "listen_face";
     ESP_ERROR_CHECK(esp_timer_create(&poll, &listen_poll_timer_));
+
+    // Cold-start camera recovery: after a true power-up the OV3660 sometimes never delivers a
+    // frame (the ESP32 supplies its clock and its PWDN/RESET pins are not wired, so the power-up
+    // sequence can't be controlled), while any software restart brings it up fine. Probe once a
+    // few seconds after boot; see CameraBootProbe().
+    esp_timer_create_args_t probe = {};
+    probe.callback = [](void* arg) {
+        auto* self = static_cast<WallEBoard*>(arg);
+        Application::GetInstance().Schedule([self]() { self->CameraBootProbe(); });
+    };
+    probe.arg = this;
+    probe.name = "cam_probe";
+    ESP_ERROR_CHECK(esp_timer_create(&probe, &camera_probe_timer_));
+    ESP_ERROR_CHECK(esp_timer_start_once(camera_probe_timer_, 6 * 1000 * 1000));
 
     walle_console::Start();
     ESP_LOGI(TAG, "Jarvis board ready (wake word: %s)", WAKE_WORD_NAME);
@@ -647,6 +662,24 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
         }
     }
     UpdateStatusDot();
+}
+
+void WallEBoard::CameraBootProbe() {
+    const esp_reset_reason_t reason = esp_reset_reason();
+    const bool cold = reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT;
+    if (camera_ == nullptr || camera_->ProbeFrame()) {
+        ESP_LOGI(TAG, "Camera boot probe: frames OK (reset reason %d)", (int)reason);
+        return;
+    }
+    if (!cold) {
+        // Already a software/USB/watchdog restart: restarting again would not help and could loop.
+        ESP_LOGE(TAG, "Camera boot probe: NO frames after a warm start (reset reason %d); "
+                      "not rebooting - camera likely needs a hardware check", (int)reason);
+        return;
+    }
+    ESP_LOGW(TAG, "Camera boot probe: no frames after a cold power-up (reset reason %d); "
+                  "restarting once to recover the sensor", (int)reason);
+    Application::GetInstance().Reboot();
 }
 
 void WallEBoard::Tick() {

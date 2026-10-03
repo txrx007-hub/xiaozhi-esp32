@@ -75,6 +75,7 @@ private:
     void ApplyWakeThreshold(bool speaking);
     void StartRinging(const std::string& label);
     void Tick();
+    void CheckWifiSetupTimeout(int64_t now);
     void CameraBootProbe();  // main task, once per second
     void UpdateStatusDot();
     void SetCpuMhz(int mhz);
@@ -107,6 +108,10 @@ private:
     int64_t ring_until_us_ = 0;
     int64_t next_ring_us_ = 0;
     std::atomic<bool> network_connected_{false};
+    // WiFi setup hotspot auto-exit (CheckWifiSetupTimeout, run from Tick()).
+    bool wifi_setup_active_ = false;
+    int64_t wifi_setup_since_us_ = 0;
+    int64_t wifi_setup_client_us_ = 0;
     int applied_volume_cap_ = -1;
     std::string weather_line_;
 };

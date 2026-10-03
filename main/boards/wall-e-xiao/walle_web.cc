@@ -3,7 +3,9 @@
 
 #include "walle_web.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -178,6 +180,34 @@ esp_err_t GetPingHandler(httpd_req_t* req) {
     return httpd_resp_send(req, nullptr, 0);
 }
 
+// Remote control from the landing page. POST /api/drive?l=-100..100&r=-100..100 drives each wheel
+// for 500 ms, replacing the previous command, so the page re-sends it every 150 ms while an arrow
+// is held; when commands stop (button released, WiFi dropped, tab closed) the wheels stop on
+// their own. l=0&r=0 stops at once.
+esp_err_t PostDriveHandler(httpd_req_t* req) {
+    char query[32] = {};
+    char value[8] = {};
+    int left = 0;
+    int right = 0;
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        if (httpd_query_key_value(query, "l", value, sizeof(value)) == ESP_OK) left = atoi(value);
+        if (httpd_query_key_value(query, "r", value, sizeof(value)) == ESP_OK) right = atoi(value);
+    }
+    left = std::clamp(left, -100, 100);
+    right = std::clamp(right, -100, 100);
+    auto& board = WallEBoard::Get();
+    if (left == 0 && right == 0) {
+        board.motors().Stop();
+    } else {
+        if (board.IsNapping()) {
+            Application::GetInstance().Schedule([]() { WallEBoard::Get().ExitNap(); });
+        }
+        board.motors().Run({{left, right, 500}}, false);
+    }
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, nullptr, 0);
+}
+
 // WALL-E: temporary diagnostic for the purple-hue report. GET /debug/photo.jpg?format=yuyv|uyvy
 // captures one frame and encodes THAT SAME frame under the requested pixel-format tag (default
 // uyvy), so the two color-order hypotheses can be compared directly. Not a normal user feature;
@@ -299,7 +329,7 @@ void Start() {
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 7;
+    config.max_uri_handlers = 8;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -315,6 +345,7 @@ void Start() {
         {.uri = "/api/reset", .method = HTTP_POST, .handler = PostResetHandler, .user_ctx = nullptr},
         {.uri = "/api/status", .method = HTTP_GET, .handler = GetStatusHandler, .user_ctx = nullptr},
         {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
+        {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
         {.uri = "/debug/photo.jpg", .method = HTTP_GET, .handler = GetDebugPhotoHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {

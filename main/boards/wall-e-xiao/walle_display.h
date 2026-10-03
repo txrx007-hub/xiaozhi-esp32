@@ -28,9 +28,6 @@ public:
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
     // next one arrives.
     void SetChatMessage(const char* role, const char* content) override;
-    // The closed eyes already say "listening" - the top status text doesn't need to repeat it.
-    // Every other status text (connecting, speaking, standby, ...) still shows as normal.
-    void SetStatus(const char* status) override;
     // A single take_photo/diagnostics capture shows the real picture, fit into the bottom half
     // of the screen, for 2 s (upstream default: full-ish size, centered, 5 s). look_around's
     // per-frame shots stay suppressed via SuppressNextPreview(), unaffected by this.
@@ -78,6 +75,13 @@ private:
     void CreateRibbon();
     void UpdateRibbon();  // LVGL timer, ~25 fps; also drives the spectrum bars when active
     void UpdateSpectrumBars();
+    // The other speaking visualizers (scope, mouth, radial, vu, orb). kOff/kWinamp hide them all.
+    void CreateVisuals();
+    void UpdateVisual(walle_spectrum::Mode mode);
+    bool EnsureCanvasBuffer();
+    void DrawRadial();
+    void DrawVu();
+    void DrawOrb();
     void CreateClock();
     void SetDigit(int index, int value);
     void RemoveOverlayLater(lv_obj_t* obj, int delay_ms);
@@ -112,6 +116,16 @@ private:
     lv_obj_t* spectrum_bars_[walle_spectrum::kBands] = {};
     lv_obj_t* spectrum_peaks_[walle_spectrum::kBands] = {};
     bool spectrum_visible_ = false;
+
+    lv_obj_t* scope_line_ = nullptr;
+    lv_point_precise_t scope_points_[walle_spectrum::kWavePoints] = {};
+    lv_obj_t* mouth_root_ = nullptr;
+    lv_obj_t* mouth_teeth_[4] = {};
+    lv_obj_t* viz_canvas_ = nullptr;  // radial / vu / orb, square, over the eyes
+    uint8_t* viz_canvas_buf_ = nullptr;  // PSRAM, allocated the first time it's needed
+    float viz_bands_[walle_spectrum::kBands] = {};
+    float viz_level_ = 0.0f;  // 0..1, smoothed speaker level
+    float vu_needle_ = 0.0f;
 
     lv_obj_t* clock_root_ = nullptr;
     lv_obj_t* clock_date_ = nullptr;

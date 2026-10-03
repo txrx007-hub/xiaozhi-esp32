@@ -301,11 +301,10 @@ WalleAudioCodec* WallEBoard::walle_codec() {
         display_->SetLevelSources([c]() { return c->output_rms(); },
                                   [c]() { return c->input_rms(); });
         display_->SetSpectrumSource([c]() { return c->TakeSpectrum(); });
-        // visualizer_mode is index 0 = off, 1 = winamp (kVisualizerModes in walle_settings.cc).
-        const bool winamp = settings.GetInt("visualizer_mode") == 1;
-        c->SetSpectrumEnabled(winamp);
-        display_->SetVisualizerMode(winamp ? walle_spectrum::Mode::kWinamp
-                                           : walle_spectrum::Mode::kOff);
+        // visualizer_mode is an index into walle_spectrum::kModeNames (0 = off).
+        const int mode = settings.GetInt("visualizer_mode");
+        c->SetSpectrumEnabled(mode != 0);
+        display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
         return c;
     }();
     return codec;
@@ -396,7 +395,13 @@ void WallEBoard::RequestScreensaver() {
         WalleWeather::GetInstance().RefreshInBackground();
         return;
     }
+    // The reply that confirms it is usually still playing, and afterwards the app re-enters
+    // listening (continuous conversation) rather than idle - so without help the clock only
+    // appeared ~100 s later, when the server finally closed the session. Tick() ends the
+    // conversation once the reply is done; the idle state then shows the clock.
     screensaver_requested_ = true;
+    screensaver_deadline_us_ = NowUs() + kPendingTimeoutUs;
+    screensaver_spoke_ = Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking;
 }
 
 void WallEBoard::RequestNap(const char* reason) {
@@ -575,11 +580,10 @@ void WallEBoard::ApplySetting(const std::string& key) {
         display_->SetWeatherLine("");
         WalleWeather::GetInstance().RefreshInBackground(0);
     } else if (key == "visualizer_mode") {
-        // index 0 = off, 1 = winamp (kVisualizerModes in walle_settings.cc).
-        const bool winamp = settings.GetInt("visualizer_mode") == 1;
-        walle_codec()->SetSpectrumEnabled(winamp);
-        display_->SetVisualizerMode(winamp ? walle_spectrum::Mode::kWinamp
-                                           : walle_spectrum::Mode::kOff);
+        // index into walle_spectrum::kModeNames (0 = off).
+        const int mode = settings.GetInt("visualizer_mode");
+        walle_codec()->SetSpectrumEnabled(mode != 0);
+        display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,
                                                   ESP_LOG_DEBUG};
@@ -635,6 +639,7 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
     if (now == kDeviceStateSpeaking) {
         ApplyWakeThreshold(true);
         spoke_since_request_ = true;
+        screensaver_spoke_ = true;
     } else if (previous == kDeviceStateSpeaking) {
         ApplyWakeThreshold(false);
     }
@@ -743,6 +748,17 @@ void WallEBoard::Tick() {
         if (line != weather_line_) {
             weather_line_ = line;
             display_->SetWeatherLine(line);
+        }
+    }
+
+    // Screensaver requested by voice while talking: same wait, then end the conversation.
+    if (screensaver_requested_ && state_ == kDeviceStateListening && !pending_nap_ &&
+        !pending_deep_sleep_) {
+        auto& app = Application::GetInstance();
+        const bool reply_done = screensaver_spoke_ && app.GetAudioService().IsPlaybackIdle();
+        if (reply_done || now > screensaver_deadline_us_) {
+            app.AbortSpeaking(kAbortReasonNone);  // no follow-up reply over the clock
+            app.StopListening();                  // -> idle, which shows the clock
         }
     }
 

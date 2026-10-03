@@ -136,6 +136,21 @@ int WalleAudioCodec::Write(const int16_t* data, int samples) {
 // millisecond on this core - simpler and harder to get wrong than the two-real-signals-in-one-
 // complex-FFT trick, for a cost that is negligible next to the ~43 ms this window represents.
 void WalleAudioCodec::AnalyzeSpectrumWindow() {
+    // Oscilloscope snapshot first, from the raw window: every (kFftSize / kWavePoints)th sample,
+    // scaled so the window's peak nearly fills the strip, but never boosted past a fixed floor so
+    // near-silence stays a flat line instead of amplified hiss.
+    constexpr int kWaveStep = kFftSize / walle_spectrum::kWavePoints;
+    constexpr int kWaveFloor = 2500;
+    int window_peak = kWaveFloor;
+    for (int i = 0; i < kFftSize; ++i) {
+        window_peak = std::max(window_peak, std::abs(static_cast<int>(fft_accum_[i])));
+    }
+    int8_t wave[walle_spectrum::kWavePoints];
+    for (int j = 0; j < walle_spectrum::kWavePoints; ++j) {
+        wave[j] = static_cast<int8_t>(
+            std::clamp(fft_accum_[j * kWaveStep] * 127 / window_peak, -127, 127));
+    }
+
     for (int i = 0; i < kFftSize; ++i) {
         fft_buffer_[2 * i] = fft_accum_[i] * hann_window_[i];
         fft_buffer_[2 * i + 1] = 0.0f;
@@ -148,6 +163,7 @@ void WalleAudioCodec::AnalyzeSpectrumWindow() {
         std::lock_guard<std::mutex> lock(spectrum_mutex_);
         frame = spectrum_;  // keep the previous peaks to decay from
     }
+    std::memcpy(frame.wave, wave, sizeof(wave));
     for (int band = 0; band < walle_spectrum::kBands; ++band) {
         float peak_mag = 0.0f;
         for (int bin = band_ranges_[band].lo; bin <= band_ranges_[band].hi; ++bin) {

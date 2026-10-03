@@ -98,9 +98,9 @@ disconnect.
 
 ## Settings (NVS namespace `walle`)
 
-motor_max_speed 70 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / motor_b_invert /
+motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / motor_b_invert /
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
-speaking) · max_volume 80 · shutter_sound 0 · wake_chirp 1 · quiet_start /
+speaking) · max_volume 80 · shutter_sound 1 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
 visualizer_mode off · log_level warn.
 

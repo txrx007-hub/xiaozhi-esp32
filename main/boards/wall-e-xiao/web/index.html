@@ -120,10 +120,12 @@
   <footer>Changes apply and save right away. On your home network only.</footer>
 </div>
 <script>
+// Settings that exist on the device but are not offered on the page (fixed at their defaults).
+var HIDDEN = { motor_max_speed: true, shutter_sound: true };
 // Groups control section order and titles; any key not listed lands in "Other".
 var GROUPS = [
-  ["Motors", ["motor_max_speed", "motor_trim", "turn_ms_per_90", "motor_a_invert", "motor_b_invert", "motor_swap", "soft_start_ms"]],
-  ["Audio and wake word", ["mic_gain_db", "wake_threshold", "max_volume", "shutter_sound", "wake_chirp"]],
+  ["Motors", ["motor_trim", "turn_ms_per_90", "motor_a_invert", "motor_b_invert", "motor_swap", "soft_start_ms"]],
+  ["Audio and wake word", ["mic_gain_db", "wake_threshold", "max_volume", "wake_chirp"]],
   ["Screen and quiet hours", ["idle_clock_min", "quiet_start", "quiet_end"]],
   ["Weather", ["weather_city"]],
   ["Visualizer", ["visualizer_mode"]],
@@ -350,7 +352,7 @@ function buildField(def) {
 function loadSettings() {
   fetch("/api/settings").then(function (r) { return r.json(); }).then(function (list) {
     var byKey = {};
-    list.forEach(function (def) { byKey[def.key] = def; });
+    list.forEach(function (def) { if (!HIDDEN[def.key]) byKey[def.key] = def; });
     var used = {};
     var container = document.getElementById("sections");
     container.innerHTML = "";
@@ -366,7 +368,7 @@ function loadSettings() {
         container.appendChild(buildField(byKey[k]));
       });
     });
-    var rest = list.filter(function (def) { return !used[def.key]; });
+    var rest = list.filter(function (def) { return !used[def.key] && !HIDDEN[def.key]; });
     if (rest.length) {
       var h2b = document.createElement("h2");
       h2b.textContent = "Other";

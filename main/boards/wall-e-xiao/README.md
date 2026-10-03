@@ -87,8 +87,22 @@ listening, speaking, napping, ...), live CPU clock/RAM/PSRAM usage (polled every
 one, not just a ceiling) and a live LAN round-trip time, polled 3x/sec against `GET /api/ping` (an
 empty response, so the number reflects request/response overhead rather than payload transfer).
 Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
-`POST /api/reset`, `GET /api/status`, `GET /api/ping`); starts when Wi-Fi connects, stops on
-disconnect.
+`POST /api/reset`, `GET /api/status`, `GET /api/ping`, `POST /api/drive`); starts when Wi-Fi
+connects, stops on disconnect. Top speed and the shutter sound are not on the page (fixed at
+100% / on).
+
+**Remote control** (toggle button under the header): a D-pad, hold an arrow to drive at full
+speed, release to stop; ▲/▼ drive, ◀/▶ spin in place, ▲/▼ plus a side arrow arcs (inner wheel
+35%). Keyboard arrows work while the panel is open. The page re-sends
+`POST /api/drive?l=..&r=..` every 150 ms while held; each command drives for only 500 ms and
+replaces the previous one, so the wheels stop on their own if commands stop (WiFi drop, tab
+hidden, phone locked). `l=0&r=0` stops at once.
+
+**WiFi setup timeout:** upstream keeps the setup hotspot open until a network is saved or Exit is
+tapped. `CheckWifiSetupTimeout()` (from `Tick()`) leaves it after 2 minutes with no device
+connected to the hotspot, or 10 minutes in total, via `WifiManager::StopConfigAp()` (what the
+setup page's Exit button calls - reconnects to the saved networks, no reboot). Skipped when no
+network is saved. Up to 10 networks are remembered; the strongest saved one is joined.
 
 ## USB console
 

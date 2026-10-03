@@ -13,6 +13,7 @@
 #include <esp_log.h>
 #include <esp_pm.h>
 #include <esp_system.h>
+#include <esp_wifi.h>
 #include <esp_sleep.h>
 
 #include "application.h"
@@ -25,6 +26,8 @@
 #include "walle_timers.h"
 #include "walle_weather.h"
 #include "walle_web.h"
+#include "ssid_manager.h"
+#include "wifi_manager.h"
 
 #define TAG "WallEBoard"
 
@@ -353,6 +356,15 @@ void WallEBoard::SetPowerSaveLevel(PowerSaveLevel level) {
 void WallEBoard::SetNetworkEventCallback(NetworkEventCallback callback) {
     WifiBoard::SetNetworkEventCallback(
         [this, callback](NetworkEvent event, const std::string& data) {
+            if (event == NetworkEvent::WifiConfigModeEnter) {
+                Application::GetInstance().Schedule([this]() {
+                    wifi_setup_active_ = true;
+                    wifi_setup_since_us_ = wifi_setup_client_us_ = NowUs();
+                });
+            } else if (event == NetworkEvent::WifiConfigModeExit ||
+                       event == NetworkEvent::Connected) {
+                Application::GetInstance().Schedule([this]() { wifi_setup_active_ = false; });
+            }
             if (event == NetworkEvent::Connected) {
                 network_connected_ = true;
                 walle_web::Start();  // http://<ip>/ : settings page, same LAN only
@@ -682,10 +694,38 @@ void WallEBoard::CameraBootProbe() {
     Application::GetInstance().Reboot();
 }
 
+void WallEBoard::CheckWifiSetupTimeout(int64_t now) {
+    // Upstream keeps the setup hotspot open until a network is saved or Exit is tapped. Leave it
+    // after 2 minutes with nobody connected to it, or 10 minutes in total, and go back to the
+    // saved networks - the same call the setup page's Exit button makes (no reboot).
+    constexpr int64_t kIdleUs = 120LL * 1000 * 1000;
+    constexpr int64_t kMaxUs = 600LL * 1000 * 1000;
+    if (!wifi_setup_active_) {
+        return;
+    }
+    wifi_sta_list_t clients = {};
+    if (esp_wifi_ap_get_sta_list(&clients) == ESP_OK && clients.num > 0) {
+        wifi_setup_client_us_ = now;
+    }
+    const bool idle = now - wifi_setup_client_us_ >= kIdleUs;
+    const bool too_long = now - wifi_setup_since_us_ >= kMaxUs;
+    if (!idle && !too_long) {
+        return;
+    }
+    if (SsidManager::GetInstance().GetSsidList().empty()) {
+        return;  // nothing to go back to
+    }
+    ESP_LOGI(TAG, "WiFi setup %s; returning to the saved networks",
+             idle ? "idle for 2 minutes" : "open for 10 minutes");
+    wifi_setup_active_ = false;
+    WifiManager::GetInstance().StopConfigAp();
+}
+
 void WallEBoard::Tick() {
     WalleTimers::GetInstance().Tick();
     ApplyVolumeCap();
     const int64_t now = NowUs();
+    CheckWifiSetupTimeout(now);
 
     if (ringing_) {
         if (now > ring_until_us_) {

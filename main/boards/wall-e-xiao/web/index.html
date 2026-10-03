@@ -92,6 +92,23 @@
   #commands ul { margin: 0; padding-left: 18px; }
   #commands li { margin-bottom: 5px; font-size: 14px; }
   #commands .say { color: var(--muted); font-style: italic; }
+  #remote { display: none; margin-top: 14px; }
+  .pad {
+    display: grid; grid-template-columns: repeat(3, 76px); grid-template-rows: repeat(3, 76px);
+    gap: 10px; justify-content: center; margin: 4px 0 6px;
+  }
+  .pad button {
+    margin: 0; padding: 0; font-size: 30px; border-radius: 14px;
+    border-color: var(--accent); color: var(--accent);
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  }
+  .pad button.held { background: rgba(32,224,224,.22); }
+  .pad .up { grid-column: 2; grid-row: 1; }
+  .pad .left { grid-column: 1; grid-row: 2; }
+  .pad .right { grid-column: 3; grid-row: 2; }
+  .pad .down { grid-column: 2; grid-row: 3; }
+  #remote .help { text-align: center; }
+  .toggles { display: flex; gap: 10px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 </style>
 </head>
@@ -113,8 +130,20 @@
       </p>
     </div>
   </header>
-  <button id="commandsToggle" class="secondary">Voice commands</button>
+  <div class="toggles">
+    <button id="commandsToggle" class="secondary">Voice commands</button>
+    <button id="remoteToggle" class="secondary">Remote control</button>
+  </div>
   <div id="commands"></div>
+  <div id="remote" class="card">
+    <div class="pad">
+      <button class="up" data-dir="up" aria-label="Forward">&#9650;</button>
+      <button class="left" data-dir="left" aria-label="Spin left">&#9664;</button>
+      <button class="right" data-dir="right" aria-label="Spin right">&#9654;</button>
+      <button class="down" data-dir="down" aria-label="Backward">&#9660;</button>
+    </div>
+    <p class="help">Hold an arrow to drive (full speed), let go to stop. Keyboard arrows work too.</p>
+  </div>
   <div id="sections">Loading settings...</div>
   <button id="reset">Reset all to defaults</button>
   <footer>Changes apply and save right away. On your home network only.</footer>
@@ -453,6 +482,74 @@ commandsToggle.addEventListener("click", function () {
   var open = commandsPanel.style.display === "block";
   commandsPanel.style.display = open ? "none" : "block";
   commandsToggle.textContent = open ? "Voice commands" : "Hide voice commands";
+});
+
+// Remote control: while any arrow is held, re-send the wheel command every 150 ms. Each command
+// drives for only 500 ms on the robot, so if the page stops sending (released, tab hidden, WiFi
+// dropped) the wheels stop by themselves.
+var DRIVE_SPEED = 100;
+var remoteToggle = document.getElementById("remoteToggle");
+var remotePanel = document.getElementById("remote");
+var held = {};
+var driveTimer = null;
+function wheelCommand() {
+  var f = (held.up ? 1 : 0) - (held.down ? 1 : 0);
+  var t = (held.right ? 1 : 0) - (held.left ? 1 : 0);
+  if (f === 0) return [t * DRIVE_SPEED, -t * DRIVE_SPEED];  // spin in place (or stop)
+  // forward/back plus a side arrow: arc by slowing the inner wheel
+  var l = f * DRIVE_SPEED, r = f * DRIVE_SPEED;
+  if (t > 0) r = Math.round(r * 0.35);
+  if (t < 0) l = Math.round(l * 0.35);
+  return [l, r];
+}
+function sendDrive(l, r) {
+  fetch("/api/drive?l=" + l + "&r=" + r, { method: "POST", cache: "no-store" }).catch(function () {});
+}
+function updateDrive() {
+  var cmd = wheelCommand();
+  var buttons = remotePanel.querySelectorAll(".pad button");
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].classList.toggle("held", !!held[buttons[i].getAttribute("data-dir")]);
+  }
+  if (cmd[0] === 0 && cmd[1] === 0) {
+    if (driveTimer) { clearInterval(driveTimer); driveTimer = null; sendDrive(0, 0); }
+    return;
+  }
+  sendDrive(cmd[0], cmd[1]);
+  if (driveTimer) clearInterval(driveTimer);
+  driveTimer = setInterval(function () { var c = wheelCommand(); sendDrive(c[0], c[1]); }, 150);
+}
+function releaseAll() { held = {}; updateDrive(); }
+Array.prototype.forEach.call(remotePanel.querySelectorAll(".pad button"), function (btn) {
+  var dir = btn.getAttribute("data-dir");
+  btn.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    if (btn.setPointerCapture) btn.setPointerCapture(e.pointerId);
+    held[dir] = true; updateDrive();
+  });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(function (type) {
+    btn.addEventListener(type, function () { if (held[dir]) { delete held[dir]; updateDrive(); } });
+  });
+  btn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+});
+var KEY_DIRS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+document.addEventListener("keydown", function (e) {
+  var dir = KEY_DIRS[e.key];
+  if (!dir || remotePanel.style.display !== "block") return;
+  e.preventDefault();
+  if (!held[dir]) { held[dir] = true; updateDrive(); }
+});
+document.addEventListener("keyup", function (e) {
+  var dir = KEY_DIRS[e.key];
+  if (dir && held[dir]) { delete held[dir]; updateDrive(); }
+});
+window.addEventListener("blur", releaseAll);
+document.addEventListener("visibilitychange", function () { if (document.hidden) releaseAll(); });
+remoteToggle.addEventListener("click", function () {
+  var open = remotePanel.style.display === "block";
+  remotePanel.style.display = open ? "none" : "block";
+  remoteToggle.textContent = open ? "Remote control" : "Hide remote";
+  if (open) releaseAll();
 });
 buildCommands();
 

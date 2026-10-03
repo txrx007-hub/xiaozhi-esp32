@@ -56,7 +56,7 @@ bool ParseInt(const std::string& text, int& out) {
 
 WalleSettings::WalleSettings() {
     defs_ = {
-        {"motor_max_speed", Kind::kInt, 20, 100, 70, "caps all movement, in percent"},
+        {"motor_max_speed", Kind::kInt, 20, 100, 100, "caps all movement, in percent"},
         {"motor_trim", Kind::kInt, -20, 20, 0,
          "wheel balance: raise it if Jarvis drifts left, lower it if it drifts right"},
         {"turn_ms_per_90", Kind::kInt, 100, 3000, 600, "milliseconds for a 90 degree turn at speed 60"},
@@ -67,7 +67,7 @@ WalleSettings::WalleSettings() {
         {"mic_gain_db", Kind::kInt, 0, 24, 18, "software microphone gain in dB"},
         {"wake_threshold", Kind::kHundredths, 50, 95, 52, "wake word threshold, lower wakes more easily"},
         {"max_volume", Kind::kInt, 30, 100, 80, "speaker volume cap (brownout protection)"},
-        {"shutter_sound", Kind::kBool, 0, 1, 0, "click sound when taking a photo"},
+        {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},
         {"quiet_start", Kind::kTimeOfDay, -1, 1439, -1, "night mode start, HH:MM or off"},
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},
@@ -77,6 +77,17 @@ WalleSettings::WalleSettings() {
          "what the screen shows in place of the level bars while Jarvis speaks: off or winamp"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
+
+    // One-time migration: top speed and the shutter sound were removed from the portal and now
+    // default to 100% / on. Drop values saved by earlier builds so the new defaults apply.
+    {
+        Settings migrate(kNamespace, true);
+        if (migrate.GetInt("cfg_ver", 0) < 2) {
+            migrate.EraseKey("motor_max_speed");
+            migrate.EraseKey("shutter_sound");
+            migrate.SetInt("cfg_ver", 2);
+        }
+    }
 
     Settings settings(kNamespace, false);
     values_.reserve(defs_.size());

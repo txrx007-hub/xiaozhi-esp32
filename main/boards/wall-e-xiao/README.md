@@ -51,6 +51,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.settings.list` / `get` / `set` / `reset` | "you drift to the left", "set quiet hours from 22:00 to 07:00" |
 | `self.system.enter_standby` / `get_standby` | "take a nap" |
 | `self.system.deep_sleep` | "sleep for two hours", "sleep until 7 o'clock" |
+| `self.system.reconfigure_wifi` | "reconfigure your WiFi" (asks to confirm, then opens the setup hotspot; stops the LAN settings page first since both use port 80) |
 | `self.timer.set` / `list` / `cancel` | "set a tea timer for 5 minutes", "alarm at 7:30" |
 | `self.weather.get` | "what's the weather?" (city: "set my weather city to Amsterdam") |
 | `self.display.set_visualizer` | "show the winamp visualizer" (mode: off or winamp; setting `visualizer_mode`) |

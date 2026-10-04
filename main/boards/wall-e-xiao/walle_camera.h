@@ -31,7 +31,13 @@ public:
     // more after the first frame is confirmed.
     void EnableAutoWhiteBalance();
 
+    // Detected at every startup (see the constructor): whether esp_video found a camera, and which
+    // sensor it reported. Shown on the settings page and logged at boot.
+    bool Detected() const { return CameraPresent(); }
+    const std::string& SensorName() const { return sensor_name_; }
+
 private:
+    std::string sensor_name_;
     uint8_t* collage_ = nullptr;
     size_t collage_len_ = 0;
     uint16_t collage_width_ = 0;

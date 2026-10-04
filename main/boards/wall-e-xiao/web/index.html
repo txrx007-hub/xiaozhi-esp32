@@ -180,6 +180,7 @@
       <p id="sub">Loading...</p>
       <p id="meta">
         <span id="metaBoard"></span> ·
+        <span id="metaCamera"></span> ·
         <span id="metaMac"></span> ·
         <span id="metaPower"></span> ·
         <span id="metaState" class="state"></span> ·
@@ -551,7 +552,9 @@ function loadStatus() {
     document.getElementById("sub").textContent =
       (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip");
 
-    document.getElementById("metaBoard").textContent = (s.board || "").split("/")[0];
+    document.getElementById("metaBoard").textContent = s.board_name || (s.board || "").split("/")[0];
+    document.getElementById("metaCamera").textContent = "camera detected: " +
+      (s.camera_detected ? "yes" + (s.camera_sensor ? " (" + s.camera_sensor + ")" : "") : "no");
     document.getElementById("metaMac").textContent = s.mac || "";
     document.getElementById("metaPower").textContent =
       s.power ? "mode: " + (s.power === "console" ? "console" : "Battery") : "";

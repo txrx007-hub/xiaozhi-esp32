@@ -43,7 +43,13 @@ const char* FormatName(v4l2_pix_fmt_t format) {
 }  // namespace
 
 WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(config) {
-    EnableAutoWhiteBalance();
+    sensor_name_ = DetectSensorName();
+    if (CameraPresent()) {
+        ESP_LOGI(TAG, "Camera detected: %s", sensor_name_.c_str());
+        EnableAutoWhiteBalance();
+    } else {
+        ESP_LOGW(TAG, "No camera detected");
+    }
 }
 
 WalleCamera::~WalleCamera() { CollageEnd(); }

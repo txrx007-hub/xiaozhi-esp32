@@ -58,6 +58,11 @@ public:
     bool ProbeFrame();
     // WALL-E: write one raw sensor register (via esp_cam_sensor's ioctl pass-through).
     bool WriteSensorReg(uint16_t reg, uint8_t value);
+    // WALL-E: a video device was opened, i.e. esp_video found and initialized a camera sensor.
+    bool CameraPresent() const { return video_fd_ >= 0; }
+    // WALL-E: the sensor model as the sensor itself reports it (chip ID read over SCCB): "OV3660",
+    // "OV2640", "OV5640", or "unknown (PID 0x....)"; empty when no camera is present.
+    std::string DetectSensorName();
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;
     virtual bool SetVFlip(bool enabled) override;

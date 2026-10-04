@@ -99,6 +99,11 @@ their settings (closed by default). The device info under the title is a two-col
 detected (YES (OV3660) / NO), MAC address, Ping, Mode, Status, Uptime; right FPS (screen redraws per
 second, 0 on a static screen), CPU (load % from the FreeRTOS idle-task share, plus MHz), PSRAM free,
 RAM used/total, HEAP (largest free internal block), WIFI (dBm), AUDIO (mic / speaker kHz).
+A **Power** card has a Nap / Wake up toggle and a Deep sleep button that opens hours + minutes
+fields (plus 30 min / 1 / 2 / 8 hrs shortcuts; 0 hrs 0 min = until the BOOT button; up to 24 h) and
+a confirmation (`POST /api/power?action=nap|wake|deepsleep&minutes=N`; page-initiated sleeps start
+~2 s after the answer instead of waiting for a spoken reply). Deep sleep switches Wi-Fi off, so the
+page stops responding until the timer or the BOOT button wakes the robot.
 A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
 follows the device). The header also shows the board name ("ESP32 S3 Sense"), whether a camera was detected at startup
 and which sensor (OV3660 / OV2640 / OV5640, read from the sensor's own chip ID), MAC address, power mode

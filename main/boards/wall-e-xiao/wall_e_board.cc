@@ -455,6 +455,21 @@ void WallEBoard::ExitNap() {
     ESP_LOGI(TAG, "Nap over");
 }
 
+void WallEBoard::RequestNapNow() {
+    RequestNap("settings page");
+    if (pending_nap_) {
+        pending_deadline_us_ = NowUs() + 2LL * 1000 * 1000;
+    }
+}
+
+std::expected<std::string, std::string> WallEBoard::RequestDeepSleepNow(int minutes) {
+    auto result = RequestDeepSleep(minutes, "");
+    if (result) {
+        pending_deadline_us_ = NowUs() + 2LL * 1000 * 1000;
+    }
+    return result;
+}
+
 std::expected<std::string, std::string> WallEBoard::RequestDeepSleep(int minutes,
                                                                      const std::string& wake_at) {
     int64_t seconds = 0;

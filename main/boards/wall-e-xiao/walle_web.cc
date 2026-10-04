@@ -330,6 +330,52 @@ esp_err_t PostSettingsHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/power?action=nap|wake|deepsleep[&minutes=0..1440]. Nap and wake need the main task
+// (the screen and power code live there), so they are scheduled and the page gets its answer at
+// once; deep sleep starts about 2 s later, after the answer is out. minutes = 0 means "until the
+// BOOT button is pressed".
+esp_err_t PostPowerHandler(httpd_req_t* req) {
+    char query[64] = {};
+    char action[16] = "";
+    char minutes_param[8] = "0";
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
+        httpd_query_key_value(query, "action", action, sizeof(action));
+        httpd_query_key_value(query, "minutes", minutes_param, sizeof(minutes_param));
+    }
+    cJSON* out = cJSON_CreateObject();
+    if (strcmp(action, "nap") == 0) {
+        Application::GetInstance().Schedule([]() { WallEBoard::Get().RequestNapNow(); });
+        cJSON_AddBoolToObject(out, "ok", true);
+        cJSON_AddStringToObject(out, "message", "Napping.");
+    } else if (strcmp(action, "wake") == 0) {
+        Application::GetInstance().Schedule([]() { WallEBoard::Get().ExitNap(); });
+        cJSON_AddBoolToObject(out, "ok", true);
+        cJSON_AddStringToObject(out, "message", "Waking up.");
+    } else if (strcmp(action, "deepsleep") == 0) {
+        const int minutes = atoi(minutes_param);
+        if (minutes < 0 || minutes > 1440) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "minutes must be 0 to 1440");
+            cJSON_Delete(out);
+            return ESP_FAIL;
+        }
+        // RequestDeepSleep touches the timers and board state: run it on the main task, and
+        // answer now - the robot goes to sleep ~2 s later.
+        Application::GetInstance().Schedule([minutes]() {
+            auto result = WallEBoard::Get().RequestDeepSleepNow(minutes);
+            if (!result) {
+                ESP_LOGW(TAG, "Deep sleep from the page refused: %s", result.error().c_str());
+            }
+        });
+        cJSON_AddBoolToObject(out, "ok", true);
+        cJSON_AddStringToObject(out, "message", minutes > 0 ? "Deep sleep in 2 s." : "Deep sleep in 2 s, until the BOOT button.");
+    } else {
+        cJSON_Delete(out);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake or deepsleep");
+        return ESP_FAIL;
+    }
+    return SendJson(req, out);
+}
+
 esp_err_t PostResetHandler(httpd_req_t* req) {
     auto done = std::make_shared<std::atomic<bool>>(false);
     Application::GetInstance().Schedule([done]() {
@@ -354,7 +400,7 @@ void Start() {
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 8;
+    config.max_uri_handlers = 10;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -371,6 +417,7 @@ void Start() {
         {.uri = "/api/status", .method = HTTP_GET, .handler = GetStatusHandler, .user_ctx = nullptr},
         {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
         {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
+        {.uri = "/api/power", .method = HTTP_POST, .handler = PostPowerHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

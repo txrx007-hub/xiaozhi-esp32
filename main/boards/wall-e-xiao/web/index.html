@@ -156,6 +156,26 @@
   .pad .down { grid-column: 2; grid-row: 3; }
   #remote .help { text-align: center; }
   .toggles { display: flex; gap: 10px; }
+  #power { margin-top: 10px; }
+  #power .prow { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  #power .prow b { font-weight: 600; }
+  #power .pstate { color: var(--muted); font-size: 13px; }
+  #power .pstate span { color: var(--accent); font-weight: 600; }
+  #power .pbtns { display: flex; gap: 10px; }
+  #power .pbtns button { margin-top: 0; }
+  #sleepPanel { display: none; margin-top: 12px; }
+  #sleepPanel.open { display: block; }
+  .sleep-time { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .sleep-time input[type=number] {
+    width: 74px; margin-top: 0; text-align: center;
+    background: var(--field-bg); border: 1px solid var(--card-border); color: var(--text);
+    border-radius: 8px; padding: 9px 6px; font-size: 16px;
+  }
+  .sleep-time .unit { color: var(--muted); font-size: 14px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .chips button { width: auto; margin: 0; padding: 7px 12px; border-radius: 999px; font-size: 13px; }
+  #sleepWarn { color: var(--muted); font-size: 13px; margin: 10px 0 0; line-height: 1.45; }
+  #sleepGo { margin-top: 12px; }
   button.group-toggle {
     display: flex; justify-content: space-between; align-items: center;
     margin: 22px 0 10px; text-align: left; font-weight: 600;
@@ -219,6 +239,31 @@
     <button id="remoteToggle" class="secondary">Remote control</button>
   </div>
   <div id="commands"></div>
+  <div id="power" class="card">
+    <div class="prow"><b>Power</b><span class="pstate">Status: <span id="powerState">--</span></span></div>
+    <div class="pbtns">
+      <button id="napBtn" class="secondary">Nap</button>
+      <button id="deepBtn" class="secondary">Deep sleep&hellip;</button>
+    </div>
+    <div id="sleepPanel">
+      <div class="sleep-time">
+        <span class="unit">Sleep for</span>
+        <input type="number" id="sleepH" min="0" max="24" step="1" value="1" inputmode="numeric" aria-label="Hours">
+        <span class="unit">hrs</span>
+        <input type="number" id="sleepM" min="0" max="59" step="1" value="0" inputmode="numeric" aria-label="Minutes">
+        <span class="unit">min</span>
+      </div>
+      <div class="chips" id="sleepChips">
+        <button class="secondary" data-m="30">30 min</button>
+        <button class="secondary" data-m="60">1 hr</button>
+        <button class="secondary" data-m="120">2 hrs</button>
+        <button class="secondary" data-m="480">8 hrs</button>
+        <button class="secondary" data-m="0">Until BOOT button</button>
+      </div>
+      <p id="sleepWarn"></p>
+      <button id="sleepGo">Go to deep sleep</button>
+    </div>
+  </div>
   <div id="remote" class="card">
     <div class="pad">
       <button class="up" data-dir="up" aria-label="Forward">&#9650;</button>
@@ -581,6 +626,9 @@ function loadStatus() {
     $("iMac", s.mac || "");
     $("iMode", s.power === "console" ? "Console" : (s.power ? "Battery" : ""));
     $("iStatus", stateName.charAt(0).toUpperCase() + stateName.slice(1));
+    $("powerState", stateName.charAt(0).toUpperCase() + stateName.slice(1));
+    document.getElementById("napBtn").textContent = s.napping ? "Wake up" : "Nap";
+    isNapping = !!s.napping;
     $("iUptime", fmtUptime(s.uptime_s || 0));
     $("iFps", s.fps !== undefined ? String(s.fps) : "--");
     $("iCpu", (s.cpu_load !== undefined ? s.cpu_load + "%" : "--") + (s.cpu_mhz ? " · " + s.cpu_mhz + " MHz" : ""));
@@ -599,6 +647,59 @@ function loadStatus() {
 document.getElementById("reset").addEventListener("click", function () {
   if (!confirm("Reset every setting to its default? This cannot be undone.")) return;
   fetch("/api/reset", { method: "POST" }).then(loadSettings);
+});
+
+// Power card: Nap / Wake up toggles the light standby; Deep sleep asks for hours + minutes first.
+var isNapping = false;
+function powerPost(query) {
+  return fetch("/api/power?" + query, { method: "POST", cache: "no-store" })
+    .then(function (r) { return r.json(); })
+    .catch(function () { return { ok: false }; });
+}
+document.getElementById("napBtn").addEventListener("click", function () {
+  var btn = this;
+  btn.disabled = true;
+  powerPost("action=" + (isNapping ? "wake" : "nap")).then(function () {
+    setTimeout(function () { btn.disabled = false; loadStatus(); }, 1500);
+  });
+});
+var sleepPanel = document.getElementById("sleepPanel");
+var sleepH = document.getElementById("sleepH"), sleepM = document.getElementById("sleepM");
+function sleepMinutes() {
+  var h = Math.min(24, Math.max(0, parseInt(sleepH.value, 10) || 0));
+  var m = Math.min(59, Math.max(0, parseInt(sleepM.value, 10) || 0));
+  return Math.min(1440, h * 60 + m);
+}
+function sleepText(total) {
+  if (total === 0) return "until you press the BOOT button";
+  var h = Math.floor(total / 60), m = total % 60;
+  return "for " + (h ? h + " hr" + (h > 1 ? "s" : "") : "") + (h && m ? " " : "") + (m ? m + " min" : "");
+}
+function updateSleepWarn() {
+  var total = sleepMinutes();
+  document.getElementById("sleepWarn").textContent =
+    "Wi-Fi and the wake word switch off, so this page stops responding. Jarvis wakes " +
+    sleepText(total) + (total ? " or when you press the BOOT button" : "") + ". 0 hrs 0 min = until the BOOT button.";
+}
+document.getElementById("deepBtn").addEventListener("click", function () {
+  sleepPanel.classList.toggle("open");
+  updateSleepWarn();
+});
+[sleepH, sleepM].forEach(function (el) { el.addEventListener("input", updateSleepWarn); });
+document.getElementById("sleepChips").addEventListener("click", function (e) {
+  var b = e.target.closest("button");
+  if (!b) return;
+  var m = parseInt(b.getAttribute("data-m"), 10);
+  sleepH.value = Math.floor(m / 60);
+  sleepM.value = m % 60;
+  updateSleepWarn();
+});
+document.getElementById("sleepGo").addEventListener("click", function () {
+  var total = sleepMinutes();
+  if (!confirm("Deep sleep " + sleepText(total) + "? Wi-Fi turns off and this page will stop responding.")) return;
+  document.getElementById("powerState").textContent = "Going to sleep...";
+  powerPost("action=deepsleep&minutes=" + total);
+  sleepPanel.classList.remove("open");
 });
 
 var themeSwitch = document.getElementById("themeSwitch");

@@ -48,6 +48,11 @@ public:
     std::expected<std::string, std::string> RequestDeepSleep(int minutes, const std::string& wake_at);
     void EnterDeepSleepNow();
 
+    // From the settings page: nobody is speaking a confirmation, so don't wait for a reply -
+    // start about 2 s from now (the page needs that long to receive its answer first).
+    void RequestNapNow();
+    std::expected<std::string, std::string> RequestDeepSleepNow(int minutes);
+
     bool QuietHoursActive() const;
     bool IsRinging() const { return ringing_; }
     void StopRinging();

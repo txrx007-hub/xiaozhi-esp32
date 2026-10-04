@@ -68,10 +68,12 @@ Wi-Fi icon and status text on top · status dot top-right
 while speaking, your voice while listening) - replaced by a 32-band classic-Winamp-style spectrum
 (green/yellow/red bars growing up from the bottom, not mirrored, with peak-hold dots that sit for
 ~1 s before falling) while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars).
-`rainbow` is the same bars, movement and 1 s peak-hold as winamp, but each bar keeps its own hue
+Both spectrum strips (winamp and rainbow) are 50 px tall, growing upward from the baseline just
+above the subtitle bar (the plain level ribbon stays 26 px).
+`rainbow` is the same bars, movement and 1 s peak-hold as winamp, and each bar keeps its own hue
 sweeping once around the color wheel from green (bar 0: green, cyan, blue, violet, magenta, red,
-orange, yellow, lime), brighter at the bottom (value 100 at the base, 80 at the top; was 50 at the top before build 25,
-which averages 20% brighter), with a pale tint of that hue as the peak dot.
+orange, yellow, lime), brighter at the bottom (value 100 at the base, 50 at the top), with a pale tint of that hue as the
+peak dot. (A bump of the top to 80 was tried and reverted: the 50 look was preferred.)
 Other speaking effects: `scope` (oscilloscope line of Jarvis's voice, in the same strip), `mouth`
 (an outlined robot mouth under the eyes that opens with the voice), and three that cover the eyes
 with a 176x176 canvas while speaking (status line and subtitle stay visible): `radial` (64 spokes
@@ -92,7 +94,12 @@ control: a slider with a live numeric readout while dragging for a number, a dro
 on/off or multiple-choice setting, a time picker (with an Off switch) for the quiet hours, and
 a text box for the weather city. Changes save the instant you release the slider or change the
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
-button is at the bottom. The header also shows MAC address, uptime, current state (idle,
+button is at the bottom. "Motors" and "Audio and wake word" are toggle buttons that expand to
+their settings (closed by default). A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
+follows the device). The header also shows the board name, MAC address, power mode
+("mode: console" when a USB host is attached - `usb_serial_jtag_is_connected()`, i.e. SOF packets
+from a PC - or "mode: Battery" when online without one; a power-only USB charger has no host, so it
+reads Battery too), uptime, current state (idle,
 listening, speaking, napping, ...), live CPU clock/RAM/PSRAM usage (polled every 1 s via
 `GET /api/status` - `SetCpuMhz()` always pins min=max, so the configured frequency is the actual
 one, not just a ceiling) and a live LAN round-trip time, polled 3x/sec against `GET /api/ping` (an

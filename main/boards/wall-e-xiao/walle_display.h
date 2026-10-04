@@ -116,6 +116,7 @@ private:
     lv_obj_t* spectrum_bars_[walle_spectrum::kBands] = {};
     lv_obj_t* spectrum_peaks_[walle_spectrum::kBands] = {};
     bool spectrum_visible_ = false;
+    int spectrum_height_ = 26;  // becomes 50 on first use (winamp and rainbow; grows upward, same baseline)
 
     lv_obj_t* scope_line_ = nullptr;
     lv_point_precise_t scope_points_[walle_spectrum::kWavePoints] = {};

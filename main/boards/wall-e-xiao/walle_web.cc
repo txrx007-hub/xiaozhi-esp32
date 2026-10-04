@@ -13,6 +13,7 @@
 
 #include <cJSON.h>
 #include <esp_heap_caps.h>
+#include <driver/usb_serial_jtag.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <esp_pm.h>
@@ -158,6 +159,9 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
+    // A USB host (the PC console) sending SOF packets means USB is plugged in. Online without it
+    // can only mean the battery. A power-only charger has no host, so it also reads "battery".
+    cJSON_AddStringToObject(root, "power", usb_serial_jtag_is_connected() ? "console" : "battery");
 
     // WALL-E: live device stats for the settings page (polled every 1 s). SetCpuMhz() always sets
     // min == max, pinning the clock rather than letting PM/DFS vary it, so the configured max is

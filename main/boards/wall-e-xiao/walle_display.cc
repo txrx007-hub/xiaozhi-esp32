@@ -250,24 +250,35 @@ void WalleDisplay::CreateRibbon() {
 }
 
 void WalleDisplay::UpdateSpectrumBars() {
-    constexpr int kRibbonHeight = 26;
+    constexpr int kStripHeight = 50;   // winamp and rainbow (the plain ribbon below stays 26 px)
+    constexpr int kRibbonBaseHeight = 26;
     constexpr int kPeakHeight = 2;
     if (!spectrum_source_) {
         return;
     }
     const bool rainbow = visualizer_mode_.load() == walle_spectrum::Mode::kRainbow;
+    // The spectrum strips are 50 px tall (the plain level ribbon is 26). They keep the same
+    // baseline - just above the subtitle bar - so the taller strip grows upward into the lower
+    // part of the eyes.
+    const int strip_h = kStripHeight;
+    if (strip_h != spectrum_height_) {
+        spectrum_height_ = strip_h;
+        const int baseline = height_ - 57 + kRibbonBaseHeight / 2;
+        lv_obj_set_height(spectrum_root_, strip_h);
+        lv_obj_set_y(spectrum_root_, baseline - strip_h);
+    }
     const walle_spectrum::Frame frame = spectrum_source_();
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
-        const int h = std::max(2, frame.bands[i] * kRibbonHeight / 255);
+        const int h = std::max(2, frame.bands[i] * strip_h / 255);
         lv_obj_set_height(spectrum_bars_[i], h);
-        lv_obj_set_y(spectrum_bars_[i], kRibbonHeight - h);  // grows up from the bottom, not mirrored
+        lv_obj_set_y(spectrum_bars_[i], strip_h - h);  // grows up from the bottom, not mirrored
         if (rainbow) {
             // Same bars and peak-hold as winamp, but every bar keeps its own hue, sweeping once
             // around the wheel from green (bar 0) through cyan, blue, violet, magenta, red,
             // orange, yellow and lime - brighter at the bottom, dimmer at the top, with a pale
             // tint of the bar's own color as the peak dot (like the classic rainbow equalizer).
             const uint16_t hue = static_cast<uint16_t>((120 + i * 360 / walle_spectrum::kBands) % 360);
-            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 80), 0);
+            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 50), 0);
             lv_obj_set_style_bg_grad_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 100), 0);
             lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_VER, 0);
             lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hsv_to_rgb(hue, 35, 100), 0);
@@ -277,9 +288,9 @@ void WalleDisplay::UpdateSpectrumBars() {
             lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hex(0xffffff), 0);
         }
 
-        const int peak_h = frame.peaks[i] * kRibbonHeight / 255;
+        const int peak_h = frame.peaks[i] * strip_h / 255;
         lv_obj_set_y(spectrum_peaks_[i],
-                    std::clamp(kRibbonHeight - peak_h - kPeakHeight, 0, kRibbonHeight - kPeakHeight));
+                    std::clamp(strip_h - peak_h - kPeakHeight, 0, strip_h - kPeakHeight));
     }
 }
 

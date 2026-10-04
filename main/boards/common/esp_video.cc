@@ -533,6 +533,25 @@ std::string EspVideo::DebugSensorFormatName() {
     return format.name;
 }
 
+bool EspVideo::DebugWriteSensorReg(uint16_t reg, uint8_t value) {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    if (video_fd_ < 0) {
+        return false;
+    }
+    esp_cam_sensor_reg_val_t reg_val = {};
+    reg_val.regaddr = reg;
+    reg_val.value = value;
+    struct v4l2_ext_control ctrl = {};
+    ctrl.id = ESP_CAM_SENSOR_IOC_S_REG;
+    ctrl.size = sizeof(reg_val);
+    ctrl.p_u8 = reinterpret_cast<uint8_t*>(&reg_val);
+    struct v4l2_ext_controls ctrls = {};
+    ctrls.ctrl_class = V4L2_CTRL_CLASS_ESP_CAM_IOCTL;
+    ctrls.count = 1;
+    ctrls.controls = &ctrl;
+    return ioctl(video_fd_, VIDIOC_S_EXT_CTRLS, &ctrls) == 0;
+}
+
 int EspVideo::DebugReadSensorReg(uint16_t reg) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (video_fd_ < 0) {

@@ -238,7 +238,8 @@ void RegisterWalleTools(WallEBoard& board) {
 
     mcp.AddTool("self.display.set_visualizer",
                 "Set what Jarvis's screen shows while it speaks. mode: off (default, plain level "
-                "bars), winamp (32 green/yellow/red spectrum bars with peak-hold dots), scope "
+                "bars), winamp (32 green/yellow/red spectrum bars with peak-hold dots), rainbow (the same "
+                "bars with a different color per bar across the whole rainbow), scope "
                 "(oscilloscope waveform), mouth (a robot mouth under the eyes that moves with the "
                 "voice), or - replacing the eyes while speaking - radial (spectrum bars around a "
                 "circle), vu (analog VU meter needle) or orb (pulsing rings). Saved.",

@@ -255,12 +255,27 @@ void WalleDisplay::UpdateSpectrumBars() {
     if (!spectrum_source_) {
         return;
     }
+    const bool rainbow = visualizer_mode_.load() == walle_spectrum::Mode::kRainbow;
     const walle_spectrum::Frame frame = spectrum_source_();
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
         const int h = std::max(2, frame.bands[i] * kRibbonHeight / 255);
         lv_obj_set_height(spectrum_bars_[i], h);
         lv_obj_set_y(spectrum_bars_[i], kRibbonHeight - h);  // grows up from the bottom, not mirrored
-        lv_obj_set_style_bg_color(spectrum_bars_[i], WinampBandColor(frame.bands[i]), 0);
+        if (rainbow) {
+            // Same bars and peak-hold as winamp, but every bar keeps its own hue, sweeping once
+            // around the wheel from green (bar 0) through cyan, blue, violet, magenta, red,
+            // orange, yellow and lime - brighter at the bottom, dimmer at the top, with a pale
+            // tint of the bar's own color as the peak dot (like the classic rainbow equalizer).
+            const uint16_t hue = static_cast<uint16_t>((120 + i * 360 / walle_spectrum::kBands) % 360);
+            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 50), 0);
+            lv_obj_set_style_bg_grad_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 100), 0);
+            lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_VER, 0);
+            lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hsv_to_rgb(hue, 35, 100), 0);
+        } else {
+            lv_obj_set_style_bg_color(spectrum_bars_[i], WinampBandColor(frame.bands[i]), 0);
+            lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_NONE, 0);
+            lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hex(0xffffff), 0);
+        }
 
         const int peak_h = frame.peaks[i] * kRibbonHeight / 255;
         lv_obj_set_y(spectrum_peaks_[i],
@@ -304,13 +319,14 @@ void WalleDisplay::UpdateRibbon() {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
             ribbon_visible_ = false;
         }
-        const bool winamp = visual_mode == walle_spectrum::Mode::kWinamp;
-        if (winamp) {
+        const bool strip = visual_mode == walle_spectrum::Mode::kWinamp ||
+                           visual_mode == walle_spectrum::Mode::kRainbow;
+        if (strip) {
             UpdateSpectrumBars();
         }
-        if (winamp != spectrum_visible_) {
-            SetShown(spectrum_root_, winamp);
-            spectrum_visible_ = winamp;
+        if (strip != spectrum_visible_) {
+            SetShown(spectrum_root_, strip);
+            spectrum_visible_ = strip;
         }
         UpdateVisual(visual_mode);
         return;
@@ -407,7 +423,8 @@ void WalleDisplay::UpdateVisual(walle_spectrum::Mode mode) {
     SetShown(scope_line_, mode == Mode::kScope);
     SetShown(mouth_root_, mode == Mode::kMouth);
     SetShown(viz_canvas_, canvas_ok);
-    if (mode == Mode::kOff || mode == Mode::kWinamp || (canvas_mode && !canvas_ok)) {
+    if (mode == Mode::kOff || mode == Mode::kWinamp || mode == Mode::kRainbow ||
+        (canvas_mode && !canvas_ok)) {
         viz_level_ = 0.0f;
         vu_needle_ = 0.0f;
         for (auto& b : viz_bands_) {

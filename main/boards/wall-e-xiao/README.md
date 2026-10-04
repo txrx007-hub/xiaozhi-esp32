@@ -54,7 +54,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.system.reconfigure_wifi` | "reconfigure your WiFi" (asks to confirm, then opens the setup hotspot; stops the LAN settings page first since both use port 80) |
 | `self.timer.set` / `list` / `cancel` | "set a tea timer for 5 minutes", "alarm at 7:30" |
 | `self.weather.get` | "what's the weather?" (city: "set my weather city to Amsterdam") |
-| `self.display.set_visualizer` | "switch the screen effect to radial" (mode: off, winamp, scope, radial, vu, mouth or orb; setting `visualizer_mode`) |
+| `self.display.set_visualizer` | "switch the screen effect to radial" (mode: off, winamp, rainbow, scope, radial, vu, mouth or orb; setting `visualizer_mode`) |
 | `self.display.show_screensaver` | "turn on screensaver mode" - shows the idle clock right away; leaves by itself on the next wake word |
 | `self.diagnostics.run_check` | "check everything", "run a diagnostic on the camera" (the check list is in the tool's own description) |
 | upstream | volume, take photo (silent, no screen effect - see camera bottom-half preview below), device status, theme |
@@ -68,6 +68,9 @@ Wi-Fi icon and status text on top · status dot top-right
 while speaking, your voice while listening) - replaced by a 32-band classic-Winamp-style spectrum
 (green/yellow/red bars growing up from the bottom, not mirrored, with peak-hold dots that sit for
 ~1 s before falling) while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars).
+`rainbow` is the same bars, movement and 1 s peak-hold as winamp, but each bar keeps its own hue
+sweeping once around the color wheel from green (bar 0: green, cyan, blue, violet, magenta, red,
+orange, yellow, lime), brighter at the bottom, with a pale tint of that hue as the peak dot.
 Other speaking effects: `scope` (oscilloscope line of Jarvis's voice, in the same strip), `mouth`
 (an outlined robot mouth under the eyes that opens with the voice), and three that cover the eyes
 with a 176x176 canvas while speaking (status line and subtitle stay visible): `radial` (64 spokes

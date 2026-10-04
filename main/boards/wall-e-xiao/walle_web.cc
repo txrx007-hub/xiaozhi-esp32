@@ -21,6 +21,7 @@
 #include <freertos/task.h>
 
 #include "application.h"
+#include "config.h"
 #include "system_info.h"
 #include "wall_e_board.h"
 #include "walle_camera.h"
@@ -208,31 +209,54 @@ esp_err_t PostDriveHandler(httpd_req_t* req) {
     return httpd_resp_send(req, nullptr, 0);
 }
 
-// WALL-E: temporary diagnostic for the purple-hue report. GET /debug/photo.jpg?format=yuyv|uyvy
-// captures one frame and encodes THAT SAME frame under the requested pixel-format tag (default
-// uyvy), so the two color-order hypotheses can be compared directly. Not a normal user feature;
-// remove once the camera color pipeline is confirmed correct.
-esp_err_t GetDebugPhotoHandler(httpd_req_t* req) {
-    char query[32] = {};
-    char format_param[8] = "uyvy";
+// WALL-E: temporary diagnostic for the purple-cast investigation. Not a normal user feature.
+// GET /debug/cam?mode=240|640&out=jpeg|stats&raw=1|0
+//   mode: switch the OV3660 to the original Wall-E firmware's 240x240 YUYV mode, or back to our
+//         640x480 one (stream restarted, flip re-applied, 2.5 s for exposure/white balance to
+//         settle); omitted = keep the current mode. A reboot also returns to 640x480.
+//   out:  jpeg (default) or stats (JSON: mean Y/U/V + sensor white-balance/ISP registers).
+//   raw:  1 (default) = without our software color correction, 0 = with it.
+esp_err_t GetDebugCamHandler(httpd_req_t* req) {
+    char query[64] = {};
+    char mode[8] = "";
+    char out[8] = "jpeg";
+    char raw_param[4] = "1";
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        httpd_query_key_value(query, "format", format_param, sizeof(format_param));
+        httpd_query_key_value(query, "mode", mode, sizeof(mode));
+        httpd_query_key_value(query, "out", out, sizeof(out));
+        httpd_query_key_value(query, "raw", raw_param, sizeof(raw_param));
     }
-    const bool want_yuyv = strcmp(format_param, "yuyv") == 0;
-    const v4l2_pix_fmt_t as_format = want_yuyv ? V4L2_PIX_FMT_YUYV : V4L2_PIX_FMT_UYVY;
-
     auto* camera = WallEBoard::Get().walle_camera();
     if (camera == nullptr) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no camera");
         return ESP_FAIL;
     }
-    std::vector<uint8_t> jpeg = camera->CaptureJpegAs(as_format);
+    const char* match = strcmp(mode, "240") == 0   ? "YUYV_240x240"
+                        : strcmp(mode, "640") == 0 ? "YUYV_640x480"
+                                                   : nullptr;
+    if (match != nullptr && camera->DebugSensorFormatName().find(match) == std::string::npos) {
+        std::string chosen;
+        if (!camera->DebugSetSensorFormat(match, &chosen)) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "sensor format switch failed");
+            return ESP_FAIL;
+        }
+        camera->SetVFlip(CAMERA_VFLIP);  // the format switch soft-resets the sensor
+        camera->SetHMirror(CAMERA_HMIRROR);
+        vTaskDelay(pdMS_TO_TICKS(2500));  // let auto exposure / white balance settle
+    }
+    const bool raw = strcmp(raw_param, "0") != 0;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (strcmp(out, "stats") == 0) {
+        const std::string json = camera->DebugCaptureStatsJson(raw);
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, json.c_str(), static_cast<ssize_t>(json.size()));
+    }
+    std::vector<uint8_t> jpeg = camera->DebugCaptureJpeg(raw);
     if (jpeg.empty()) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "capture or encode failed");
         return ESP_FAIL;
     }
     httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, reinterpret_cast<const char*>(jpeg.data()),
                            static_cast<ssize_t>(jpeg.size()));
 }
@@ -346,7 +370,7 @@ void Start() {
         {.uri = "/api/status", .method = HTTP_GET, .handler = GetStatusHandler, .user_ctx = nullptr},
         {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
         {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
-        {.uri = "/debug/photo.jpg", .method = HTTP_GET, .handler = GetDebugPhotoHandler, .user_ctx = nullptr},
+        {.uri = "/debug/cam", .method = HTTP_GET, .handler = GetDebugCamHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

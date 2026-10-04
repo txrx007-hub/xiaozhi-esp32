@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jarvis settings</title>
+<script>
+// Theme: the saved choice wins, otherwise follow the device. Set early to avoid a flash.
+(function () {
+  var theme = null;
+  try { theme = localStorage.getItem("jarvis_theme"); } catch (e) {}
+  if (theme !== "light" && theme !== "dark") {
+    theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  document.documentElement.setAttribute("data-theme", theme);
+})();
+</script>
 <style>
   :root {
     --bg: #0b1416;
@@ -14,6 +25,28 @@
     --muted: #8fb9b6;
     --danger: #ff8a8a;
     --success: #6be3ab;
+    --field-bg: #0c1a1c;
+    --danger-wash: rgba(255,138,138,.1);
+    --accent-wash: rgba(32,224,224,.1);
+    --accent-held: rgba(32,224,224,.22);
+    --track: #3a4a4c;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #eef5f5;
+    --card: #ffffff;
+    --card-border: #c9dcdc;
+    --accent: #0a8f95;
+    --text: #12292b;
+    --muted: #55777a;
+    --danger: #c0392b;
+    --success: #1b8f5a;
+    --field-bg: #f3f8f8;
+    --danger-wash: rgba(192,57,43,.1);
+    --accent-wash: rgba(10,143,149,.1);
+    --accent-held: rgba(10,143,149,.2);
+    --track: #bcd0d1;
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   body {
@@ -62,7 +95,7 @@
   select, input[type=text], input[type=time] {
     width: 100%;
     margin-top: 8px;
-    background: #0c1a1c;
+    background: var(--field-bg);
     border: 1px solid var(--card-border);
     color: var(--text);
     border-radius: 8px;
@@ -83,9 +116,9 @@
     font-size: 15px;
     margin-top: 24px;
   }
-  button:active { background: rgba(255,138,138,.1); }
+  button:active { background: var(--danger-wash); }
   button.secondary { border-color: var(--accent); color: var(--accent); margin-top: 0; }
-  button.secondary:active { background: rgba(32,224,224,.1); }
+  button.secondary:active { background: var(--accent-wash); }
   #commands { display: none; margin-top: 14px; }
   #commands .card { margin-bottom: 8px; }
   #commands h3 { font-size: 14px; margin: 0 0 6px; color: var(--accent); font-weight: 600; }
@@ -102,13 +135,39 @@
     border-color: var(--accent); color: var(--accent);
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   }
-  .pad button.held { background: rgba(32,224,224,.22); }
+  .pad button.held { background: var(--accent-held); }
   .pad .up { grid-column: 2; grid-row: 1; }
   .pad .left { grid-column: 1; grid-row: 2; }
   .pad .right { grid-column: 3; grid-row: 2; }
   .pad .down { grid-column: 2; grid-row: 3; }
   #remote .help { text-align: center; }
   .toggles { display: flex; gap: 10px; }
+  button.group-toggle {
+    display: flex; justify-content: space-between; align-items: center;
+    margin: 22px 0 10px; text-align: left; font-weight: 600;
+  }
+  button.group-toggle .chev { transition: transform .15s; }
+  button.group-toggle.open .chev { transform: rotate(90deg); }
+  .group-body { display: none; }
+  .group-body.open { display: block; }
+  .theme-switch {
+    position: fixed; right: 14px; bottom: 14px; z-index: 10;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 999px;
+    padding: 6px 12px; font-size: 12px; color: var(--muted); user-select: none;
+  }
+  .theme-switch input { position: absolute; opacity: 0; pointer-events: none; }
+  .theme-switch .track {
+    position: relative; width: 38px; height: 20px; border-radius: 999px;
+    background: var(--track); cursor: pointer; transition: background .15s;
+  }
+  .theme-switch .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--text); transition: transform .15s;
+  }
+  .theme-switch input:checked + .track { background: var(--accent); }
+  .theme-switch input:checked + .track::after { transform: translateX(18px); background: #fff; }
+  .theme-switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
 </style>
 </head>
@@ -120,7 +179,9 @@
       <h1>Jarvis settings</h1>
       <p id="sub">Loading...</p>
       <p id="meta">
+        <span id="metaBoard"></span> ·
         <span id="metaMac"></span> ·
+        <span id="metaPower"></span> ·
         <span id="metaState" class="state"></span> ·
         <span id="metaUptime"></span> ·
         <span id="metaCpu"></span> ·
@@ -147,11 +208,20 @@
   <div id="sections">Loading settings...</div>
   <button id="reset">Reset all to defaults</button>
   <footer>Changes apply and save right away. On your home network only.</footer>
+  <label class="theme-switch" title="Dark / light theme">
+    <span>Dark</span>
+    <input type="checkbox" id="themeSwitch" aria-label="Light theme">
+    <span class="track"></span>
+    <span>Light</span>
+  </label>
 </div>
 <script>
 // Settings that exist on the device but are not offered on the page (fixed at their defaults).
 var HIDDEN = { motor_max_speed: true, shutter_sound: true };
 // Groups control section order and titles; any key not listed lands in "Other".
+// Groups shown as a toggle button that expands to their settings (remembered while the page is open).
+var COLLAPSIBLE = { "Motors": true, "Audio and wake word": true };
+var openGroups = {};
 var GROUPS = [
   ["Motors", ["motor_trim", "turn_ms_per_90", "motor_a_invert", "motor_b_invert", "motor_swap", "soft_start_ms"]],
   ["Audio and wake word", ["mic_gain_db", "wake_threshold", "max_volume", "wake_chirp"]],
@@ -396,12 +466,33 @@ function loadSettings() {
       var title = group[0], keys = group[1];
       var present = keys.filter(function (k) { return byKey[k]; });
       if (!present.length) return;
-      var h2 = document.createElement("h2");
-      h2.textContent = title;
-      container.appendChild(h2);
+      var holder = container;
+      if (COLLAPSIBLE[title]) {
+        // A toggle button that opens the group's settings below it (closed until tapped).
+        var btn = document.createElement("button");
+        btn.className = "secondary group-toggle";
+        btn.innerHTML = "<span></span><span class=\"chev\">&#9654;</span>";
+        btn.firstChild.textContent = title;
+        var body = document.createElement("div");
+        body.className = "group-body";
+        var setOpen = function (open) {
+          openGroups[title] = open;
+          btn.classList.toggle("open", open);
+          body.classList.toggle("open", open);
+        };
+        btn.addEventListener("click", function () { setOpen(!openGroups[title]); });
+        setOpen(!!openGroups[title]);
+        container.appendChild(btn);
+        container.appendChild(body);
+        holder = body;
+      } else {
+        var h2 = document.createElement("h2");
+        h2.textContent = title;
+        container.appendChild(h2);
+      }
       present.forEach(function (k) {
         used[k] = true;
-        container.appendChild(buildField(byKey[k]));
+        holder.appendChild(buildField(byKey[k]));
       });
     });
     var rest = list.filter(function (def) { return !used[def.key] && !HIDDEN[def.key]; });
@@ -460,7 +551,10 @@ function loadStatus() {
     document.getElementById("sub").textContent =
       (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip");
 
+    document.getElementById("metaBoard").textContent = (s.board || "").split("/")[0];
     document.getElementById("metaMac").textContent = s.mac || "";
+    document.getElementById("metaPower").textContent =
+      s.power ? "mode: " + (s.power === "console" ? "console" : "Battery") : "";
     document.getElementById("metaState").textContent =
       s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
     document.getElementById("metaUptime").textContent = fmtUptime(s.uptime_s || 0);
@@ -478,6 +572,14 @@ function loadStatus() {
 document.getElementById("reset").addEventListener("click", function () {
   if (!confirm("Reset every setting to its default? This cannot be undone.")) return;
   fetch("/api/reset", { method: "POST" }).then(loadSettings);
+});
+
+var themeSwitch = document.getElementById("themeSwitch");
+themeSwitch.checked = document.documentElement.getAttribute("data-theme") === "light";
+themeSwitch.addEventListener("change", function () {
+  var theme = themeSwitch.checked ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("jarvis_theme", theme); } catch (e) {}
 });
 
 var commandsToggle = document.getElementById("commandsToggle");

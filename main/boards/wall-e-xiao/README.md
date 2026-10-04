@@ -95,7 +95,11 @@ on/off or multiple-choice setting, a time picker (with an Off switch) for the qu
 a text box for the weather city. Changes save the instant you release the slider or change the
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
 button is at the bottom. "Motors", "Audio and wake word" and "Screen and quiet hours" are toggle buttons that expand to
-their settings (closed by default). A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
+their settings (closed by default). The device info under the title is a two-column label/value table: left Board, Camera
+detected (YES (OV3660) / NO), MAC address, Ping, Mode, Status, Uptime; right FPS (screen redraws per
+second, 0 on a static screen), CPU (load % from the FreeRTOS idle-task share, plus MHz), PSRAM free,
+RAM used/total, HEAP (largest free internal block), WIFI (dBm), AUDIO (mic / speaker kHz).
+A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
 follows the device). The header also shows the board name ("ESP32 S3 Sense"), whether a camera was detected at startup
 and which sensor (OV3660 / OV2640 / OV5640, read from the sensor's own chip ID), MAC address, power mode
 ("mode: console" when a USB host is attached - `usb_serial_jtag_is_connected()`, i.e. SOF packets

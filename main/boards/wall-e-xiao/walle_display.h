@@ -40,6 +40,10 @@ public:
     // The next camera preview is dropped (the surprised face is the photo cue).
     void SuppressNextPreview() { suppress_preview_ = true; }
 
+    // Screen redraws per second (counts LVGL render cycles that actually drew something), averaged
+    // over the time since the previous call. Static screens read 0.
+    int Fps();
+
     void SetBlank(bool blank);  // nap: panel off, backlight stays on (wired to 3V3)
     bool IsBlank() const { return blank_; }
 
@@ -89,6 +93,12 @@ private:
     // transparency means recoloring only tints the eye shape, not the black background);
     // every other emotion clears the tint so its own baked color shows unmodified.
     void ApplyEmotionRecolor(const std::string& emotion);
+
+    std::atomic<uint32_t> frame_count_{0};
+    std::mutex fps_mutex_;
+    int64_t fps_last_us_ = 0;
+    uint32_t fps_last_count_ = 0;
+    int fps_value_ = 0;
 
     std::mutex emotion_mutex_;
     std::string auto_emotion_ = "neutral";

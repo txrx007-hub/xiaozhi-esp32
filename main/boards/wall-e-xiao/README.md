@@ -6,7 +6,7 @@ The robot answers to **"Jarvis"** (WakeNet9 `wn9_jarvis_tts`).
 | Part | Details |
 |---|---|
 | Board | XIAO ESP32-S3 Sense, 8 MB flash, 8 MB octal PSRAM |
-| Camera | OV3660 (esp_video, OV2640/OV5640 auto-detect also enabled) |
+| Camera | OV3660 (esp_video, OV2640/OV5640 auto-detect also enabled) - white balance fixed in build 23 (see Notes), cold-start recovery since build 16 |
 | Audio | on-board PDM mic (CLK 42, DATA 41) · MAX98357A (DIN 5, BCLK 6, LRC 43) |
 | Display | ST7789 240x240 SPI (SCLK 9, MOSI 8, DC 44, RST 7, CS to GND, BL to 3V3) |
 | Motors | Mini L298N / MX1508: IN1 4, IN2 3 (motor A, right wheel) · IN3 2, IN4 1 (motor B, left) |
@@ -139,7 +139,10 @@ visualizer_mode off · log_level warn.
 - `boards/common/esp_video.h`: `frame_` is protected (look_around collage).
 - `boards/common/esp_video.cc`: sets a 3 s `VIDIOC_S_DQBUF_TIMEOUT` once streaming starts - upstream
   leaves it at `portMAX_DELAY` (no timeout), so a sensor that stops producing frames hangs
-  `Capture()`'s caller forever instead of failing.
+  `Capture()`'s caller forever instead of failing. Also: a mutex shared by `Capture()` and
+  `ProbeFrame()` (a one-frame "is the sensor delivering?" check used at boot), and
+  `WriteSensorReg()` (raw sensor register write through esp_cam_sensor's ioctl, used for the
+  auto-white-balance wake-up).
 - `scripts/build_default_assets.py`: an emoji collection may be a project folder.
 - `Kconfig.projbuild`, `CMakeLists.txt`: board entry, board sounds and web page embedding,
   USB console and LAN web page component requirements (`esp_driver_usb_serial_jtag`,
@@ -151,6 +154,22 @@ visualizer_mode off · log_level warn.
   what it fixes and the exact change to redo.
 
 ## Notes
+
+### Status (build 24, 2026-10-04)
+
+- **Camera white balance: fixed and confirmed on the robot** (build 23). The purple cast was the
+  sensor's auto white balance never engaging; one write to register `0x5183` wakes it. Details in
+  the "Camera color" note below. The software tint correction and all temporary diagnostics
+  (`/debug/cam`, `/debug/photo.jpg`, the extra 240x240 mode) were removed afterwards.
+- **Camera cold-start recovery** (build 16): after a true power-up (reset reason power-on or
+  brownout) the OV3660 sometimes delivers no frames; any software restart fixes it. ~6 s after
+  boot `CameraBootProbe()` checks for a frame and, if none arrived after a cold power-up, restarts
+  once (never after a software restart, so it cannot loop).
+- Remote control D-pad on the settings page, WiFi setup auto-exit (2 min idle / 10 min total),
+  `reconfigure_wifi` voice command, 7 speaking visualizers plus `rainbow` (builds 19-24).
+- Known: at the current desk the robot sits at about -81 dBm; WiFi (ping and the settings page)
+  can go silent for minutes while serial shows it connected - a `!reboot` over USB brings it back.
+  Improving the signal (antenna position, closer to the router) is the fix, not firmware.
 
 - No echo cancellation (the amp gives no reference), so interrupt by saying "Jarvis" or pressing
   BOOT. Add "never say the word computer" to the agent's role prompt on xiaozhi.me.

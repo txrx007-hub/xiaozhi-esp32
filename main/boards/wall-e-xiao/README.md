@@ -70,7 +70,8 @@ while speaking, your voice while listening) - replaced by a 32-band classic-Wina
 ~1 s before falling) while speaking when `visualizer_mode` is `winamp` (default `off`, plain bars).
 `rainbow` is the same bars, movement and 1 s peak-hold as winamp, but each bar keeps its own hue
 sweeping once around the color wheel from green (bar 0: green, cyan, blue, violet, magenta, red,
-orange, yellow, lime), brighter at the bottom, with a pale tint of that hue as the peak dot.
+orange, yellow, lime), brighter at the bottom (value 100 at the base, 80 at the top; was 50 at the top before build 25,
+which averages 20% brighter), with a pale tint of that hue as the peak dot.
 Other speaking effects: `scope` (oscilloscope line of Jarvis's voice, in the same strip), `mouth`
 (an outlined robot mouth under the eyes that opens with the voice), and three that cover the eyes
 with a 176x176 canvas while speaking (status line and subtitle stay visible): `radial` (64 spokes

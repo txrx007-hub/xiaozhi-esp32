@@ -267,7 +267,7 @@ void WalleDisplay::UpdateSpectrumBars() {
             // orange, yellow and lime - brighter at the bottom, dimmer at the top, with a pale
             // tint of the bar's own color as the peak dot (like the classic rainbow equalizer).
             const uint16_t hue = static_cast<uint16_t>((120 + i * 360 / walle_spectrum::kBands) % 360);
-            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 50), 0);
+            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 80), 0);
             lv_obj_set_style_bg_grad_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 100), 0);
             lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_VER, 0);
             lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hsv_to_rgb(hue, 35, 100), 0);

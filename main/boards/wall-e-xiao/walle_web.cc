@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include <cJSON.h>
@@ -17,6 +18,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <esp_pm.h>
+#include <freertos/task.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -146,6 +148,40 @@ esp_err_t GetSettingsHandler(httpd_req_t* req) {
     return SendJson(req, array);
 }
 
+// CPU load in percent over the time since the previous call (the page polls every second): 100
+// minus the share of run time spent in the two idle tasks (FreeRTOS run-time stats are on).
+int CpuLoadPercent() {
+    static std::mutex mutex;
+    static uint32_t last_idle = 0, last_total = 0;
+    static int last_value = 0;
+    std::lock_guard<std::mutex> lock(mutex);
+    const UBaseType_t capacity = uxTaskGetNumberOfTasks() + 4;
+    auto* tasks = static_cast<TaskStatus_t*>(
+        heap_caps_malloc(capacity * sizeof(TaskStatus_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (tasks == nullptr) {
+        return last_value;
+    }
+    uint32_t total = 0;
+    const UBaseType_t count = uxTaskGetSystemState(tasks, capacity, &total);
+    uint32_t idle = 0;
+    for (UBaseType_t i = 0; i < count; ++i) {
+        if (strncmp(tasks[i].pcTaskName, "IDLE", 4) == 0) {
+            idle += tasks[i].ulRunTimeCounter;
+        }
+    }
+    heap_caps_free(tasks);
+    const uint32_t d_total = total - last_total;  // unsigned wrap-around is fine
+    const uint32_t d_idle = idle - last_idle;
+    if (d_total >= 200000) {  // at least ~0.2 s of run time, else keep the last reading
+        const double cores = CONFIG_FREERTOS_NUMBER_OF_CORES;
+        const double load = 100.0 - 100.0 * d_idle / (d_total * cores);
+        last_value = static_cast<int>(std::clamp(load, 0.0, 100.0) + 0.5);
+        last_total = total;
+        last_idle = idle;
+    }
+    return last_value;
+}
+
 esp_err_t GetStatusHandler(httpd_req_t* req) {
     auto& board = WallEBoard::Get();
     auto& wifi = WifiManager::GetInstance();
@@ -163,6 +199,15 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
+    cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());
+    cJSON_AddNumberToObject(root, "fps", board.walle_display() != nullptr ? board.walle_display()->Fps() : 0);
+    cJSON_AddNumberToObject(
+        root, "heap_largest_kb",
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024);
+    if (auto* codec = board.GetAudioCodec(); codec != nullptr) {
+        cJSON_AddNumberToObject(root, "audio_in_hz", codec->input_sample_rate());
+        cJSON_AddNumberToObject(root, "audio_out_hz", codec->output_sample_rate());
+    }
     // A USB host (the PC console) sending SOF packets means USB is plugged in. Online without it
     // can only mean the battery. A power-only charger has no host, so it also reads "battery".
     cJSON_AddStringToObject(root, "power", usb_serial_jtag_is_connected() ? "console" : "battery");

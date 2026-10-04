@@ -63,8 +63,22 @@
   .dot.on { background: var(--success); }
   .dot.off { background: var(--danger); }
   #sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
-  #meta { color: var(--muted); font-size: 13px; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
-  #meta .state { color: var(--accent); font-weight: 600; }
+  /* Device info: two columns of label/value rows - left column from the left edge, right column
+     toward the right edge. */
+  #info {
+    display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); column-gap: 14px;
+    margin: 12px 0 18px; font-size: 12.5px; line-height: 1.55; font-variant-numeric: tabular-nums;
+  }
+  #info .irow { display: grid; grid-template-columns: 8.2em minmax(0, 1fr); gap: 6px; }
+  #info .icol.right .irow { grid-template-columns: 4.7em minmax(0, 1fr); }
+  #info .k { color: var(--muted); white-space: nowrap; }
+  #info .v { color: var(--text); overflow-wrap: anywhere; }
+  #info .v.state { color: var(--accent); font-weight: 600; }
+  @media (max-width: 400px) {
+    #info { font-size: 11.5px; column-gap: 8px; }
+    #info .irow { grid-template-columns: 8.4em minmax(0, 1fr); gap: 4px; }
+    #info .icol.right .irow { grid-template-columns: 4.3em minmax(0, 1fr); }
+  }
   h2 {
     font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
     color: var(--muted); margin: 26px 0 10px; font-weight: 600;
@@ -178,20 +192,28 @@
     <div>
       <h1>Jarvis settings</h1>
       <p id="sub">Loading...</p>
-      <p id="meta">
-        <span id="metaBoard"></span> ·
-        <span id="metaCamera"></span> ·
-        <span id="metaMac"></span> ·
-        <span id="metaPower"></span> ·
-        <span id="metaState" class="state"></span> ·
-        <span id="metaUptime"></span> ·
-        <span id="metaCpu"></span> ·
-        <span id="metaRam"></span> ·
-        <span id="metaPsram"></span> ·
-        <span id="metaPing">ping -- ms</span>
-      </p>
     </div>
   </header>
+  <div id="info">
+    <div class="icol">
+      <div class="irow"><span class="k">Board</span><span class="v" id="iBoard"></span></div>
+      <div class="irow"><span class="k">Camera detected</span><span class="v" id="iCamera"></span></div>
+      <div class="irow"><span class="k">MAC address</span><span class="v" id="iMac"></span></div>
+      <div class="irow"><span class="k">Ping</span><span class="v" id="iPing">-- ms</span></div>
+      <div class="irow"><span class="k">Mode</span><span class="v" id="iMode"></span></div>
+      <div class="irow"><span class="k">Status</span><span class="v state" id="iStatus"></span></div>
+      <div class="irow"><span class="k">Uptime</span><span class="v" id="iUptime"></span></div>
+    </div>
+    <div class="icol right">
+      <div class="irow"><span class="k">FPS</span><span class="v" id="iFps"></span></div>
+      <div class="irow"><span class="k">CPU</span><span class="v" id="iCpu"></span></div>
+      <div class="irow"><span class="k">PSRAM</span><span class="v" id="iPsram"></span></div>
+      <div class="irow"><span class="k">RAM</span><span class="v" id="iRam"></span></div>
+      <div class="irow"><span class="k">HEAP</span><span class="v" id="iHeap"></span></div>
+      <div class="irow"><span class="k">WIFI</span><span class="v" id="iWifi"></span></div>
+      <div class="irow"><span class="k">AUDIO</span><span class="v" id="iAudio"></span></div>
+    </div>
+  </div>
   <div class="toggles">
     <button id="commandsToggle" class="secondary">Voice commands</button>
     <button id="remoteToggle" class="secondary">Remote control</button>
@@ -517,9 +539,9 @@ var STATE_NAMES = [
 function fmtUptime(totalSeconds) {
   var h = Math.floor(totalSeconds / 3600);
   var m = Math.floor((totalSeconds % 3600) / 60);
-  if (h > 0) return "up " + h + "h " + m + "m";
+  if (h > 0) return h + "h " + m + "m";
   var s = totalSeconds % 60;
-  return "up " + m + "m " + s + "s";
+  return m + "m " + s + "s";
 }
 
 var pingInFlight = false;
@@ -528,13 +550,13 @@ function pollPing() {
   if (pingInFlight) return;
   pingInFlight = true;
   var start = performance.now();
-  var el = document.getElementById("metaPing");
+  var el = document.getElementById("iPing");
   fetch("/api/ping", { cache: "no-store" }).then(function (r) {
     pingInFlight = false;
-    el.textContent = r.ok ? "ping " + Math.round(performance.now() - start) + " ms" : "ping --";
+    el.textContent = r.ok ? Math.round(performance.now() - start) + " ms" : "--";
   }).catch(function () {
     pingInFlight = false;
-    el.textContent = "ping timeout";
+    el.textContent = "timeout";
   });
 }
 
@@ -552,20 +574,22 @@ function loadStatus() {
     document.getElementById("sub").textContent =
       (s.ssid ? s.ssid + " · " : "") + (s.ip || "no ip");
 
-    document.getElementById("metaBoard").textContent = s.board_name || (s.board || "").split("/")[0];
-    document.getElementById("metaCamera").textContent = "camera detected: " +
-      (s.camera_detected ? "yes" + (s.camera_sensor ? " (" + s.camera_sensor + ")" : "") : "no");
-    document.getElementById("metaMac").textContent = s.mac || "";
-    document.getElementById("metaPower").textContent =
-      s.power ? "mode: " + (s.power === "console" ? "console" : "Battery") : "";
-    document.getElementById("metaState").textContent =
-      s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
-    document.getElementById("metaUptime").textContent = fmtUptime(s.uptime_s || 0);
-    document.getElementById("metaCpu").textContent = (s.cpu_mhz || "--") + " MHz";
-    document.getElementById("metaRam").textContent =
-      "RAM " + fmtUsage((s.ram_total_kb || 0) - (s.ram_free_kb || 0), s.ram_total_kb, false);
-    document.getElementById("metaPsram").textContent =
-      "PSRAM " + fmtUsage((s.psram_total_kb || 0) - (s.psram_free_kb || 0), s.psram_total_kb, true);
+    var $ = function (id, text) { document.getElementById(id).textContent = text; };
+    var stateName = s.napping ? "napping" : (STATE_NAMES[s.state] || "state " + s.state);
+    $("iBoard", s.board_name || (s.board || "").split("/")[0]);
+    $("iCamera", s.camera_detected ? "YES" + (s.camera_sensor ? " (" + s.camera_sensor + ")" : "") : "NO");
+    $("iMac", s.mac || "");
+    $("iMode", s.power === "console" ? "Console" : (s.power ? "Battery" : ""));
+    $("iStatus", stateName.charAt(0).toUpperCase() + stateName.slice(1));
+    $("iUptime", fmtUptime(s.uptime_s || 0));
+    $("iFps", s.fps !== undefined ? String(s.fps) : "--");
+    $("iCpu", (s.cpu_load !== undefined ? s.cpu_load + "%" : "--") + (s.cpu_mhz ? " · " + s.cpu_mhz + " MHz" : ""));
+    $("iPsram", ((s.psram_free_kb || 0) / 1024).toFixed(1) + " MB free");
+    $("iRam", fmtUsage((s.ram_total_kb || 0) - (s.ram_free_kb || 0), s.ram_total_kb, false));
+    $("iHeap", s.heap_largest_kb !== undefined ? s.heap_largest_kb + " KB" : "--");
+    $("iWifi", s.rssi ? s.rssi + " dBm" : "--");
+    var inK = (s.audio_in_hz || 0) / 1000, outK = (s.audio_out_hz || 0) / 1000;
+    $("iAudio", !inK ? "--" : (!outK || outK === inK ? inK + " kHz" : inK + " / " + outK + " kHz"));
   }).catch(function () {
     document.getElementById("dot").className = "dot off";
     document.getElementById("sub").textContent = "Could not reach Jarvis";

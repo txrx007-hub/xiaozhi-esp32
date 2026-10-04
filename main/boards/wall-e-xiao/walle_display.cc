@@ -193,6 +193,14 @@ void WalleDisplay::SetupUI() {
         SetTheme(dark);
     }
     DisplayLockGuard lock(this);
+    // Frame counter for the settings page's FPS: LV_EVENT_RENDER_START fires once per refresh
+    // cycle that has something to draw (REFR_READY would also count idle cycles).
+    lv_display_add_event_cb(
+        lv_display_get_default(),
+        [](lv_event_t* e) {
+            static_cast<WalleDisplay*>(lv_event_get_user_data(e))->frame_count_.fetch_add(1);
+        },
+        LV_EVENT_RENDER_START, this);
     // Order matters on the top layer: bars under the clock, status dot above everything.
     CreateRibbon();
     CreateVisuals();
@@ -201,6 +209,19 @@ void WalleDisplay::SetupUI() {
     lv_timer_create(
         [](lv_timer_t* t) { static_cast<WalleDisplay*>(lv_timer_get_user_data(t))->UpdateRibbon(); },
         40, this);
+}
+
+int WalleDisplay::Fps() {
+    std::lock_guard<std::mutex> lock(fps_mutex_);
+    const int64_t now = esp_timer_get_time();
+    const uint32_t count = frame_count_.load();
+    const int64_t elapsed = now - fps_last_us_;
+    if (elapsed >= 800 * 1000) {  // shorter gaps (a second client, a retry) keep the last value
+        fps_value_ = static_cast<int>((count - fps_last_count_) * 1000000LL / elapsed);
+        fps_last_us_ = now;
+        fps_last_count_ = count;
+    }
+    return fps_value_;
 }
 
 void WalleDisplay::SetLevelSources(std::function<int()> output_rms,

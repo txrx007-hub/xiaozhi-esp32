@@ -94,7 +94,7 @@ control: a slider with a live numeric readout while dragging for a number, a dro
 on/off or multiple-choice setting, a time picker (with an Off switch) for the quiet hours, and
 a text box for the weather city. Changes save the instant you release the slider or change the
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
-button is at the bottom. "Motors" and "Audio and wake word" are toggle buttons that expand to
+button is at the bottom. "Motors", "Audio and wake word" and "Screen and quiet hours" are toggle buttons that expand to
 their settings (closed by default). A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
 follows the device). The header also shows the board name ("ESP32 S3 Sense"), whether a camera was detected at startup
 and which sensor (OV3660 / OV2640 / OV5640, read from the sensor's own chip ID), MAC address, power mode

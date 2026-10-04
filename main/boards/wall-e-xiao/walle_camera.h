@@ -23,30 +23,15 @@ public:
 
     std::string LastFrameInfo() const;
 
-    // WALL-E: debugging the purple-hue report (see walle_web.cc /debug/photo.jpg). Captures one
-    // frame, then encodes THAT SAME frame as JPEG under an explicitly chosen pixel format,
-    // ignoring whatever tag Capture() applied - so the two color-order hypotheses can be
-    // compared on one identical frame instead of two separate (and slightly different) shots.
-    // Empty result on failure. Not used by any normal voice/diagnostics path.
-    std::vector<uint8_t> CaptureJpegAs(v4l2_pix_fmt_t as_format);
-
-    // WALL-E diagnostics (purple cast, /debug/cam): capture one frame, optionally WITHOUT the
-    // software color correction, and return it as JPEG, or as JSON statistics (mean Y/U/V of the
-    // whole frame, the center, and the bright pixels - a white target should read U = V = 128).
-    std::vector<uint8_t> DebugCaptureJpeg(bool raw);
-    std::string DebugCaptureStatsJson(bool raw);
+    // WALL-E: this OV3660's auto white balance never engages on its own after start-up - its gains
+    // stay at 1.0 forever (measured: auto and off give identical frames) and every picture keeps a
+    // magenta/purple cast. One write to ISP register 0x5183 (bit 7, the value Omnivision's
+    // reference AWB tables use) wakes it: the gains then adapt to the scene by themselves and
+    // recover from wrong values. Safe to call again; boot calls it once at construction and once
+    // more after the first frame is confirmed.
+    void EnableAutoWhiteBalance();
 
 private:
-    // WALL-E: this sensor/module's raw YUYV output carries a uniform magenta/purple color cast
-    // (confirmed via /debug/photo.jpg: the byte order itself is correct - retagging it as UYVY,
-    // tried first, produced a much worse banded corruption, not a fix). esp_video/esp_cam_sensor
-    // define a white-balance control (ESP_CAM_SENSOR_WB) but no code in this stack actually wires
-    // it through a V4L2 control, so there is no hardware AWB knob to turn from here. Correcting it
-    // in software instead: pulls every U and V byte back toward neutral (128), each by its own
-    // fixed, by-eye-tuned amount (a single shared amount left a residual tint - U and V needed
-    // different corrections). Applied right after each raw capture, in our own code only.
-    void CorrectColorCast();
-
     uint8_t* collage_ = nullptr;
     size_t collage_len_ = 0;
     uint16_t collage_width_ = 0;

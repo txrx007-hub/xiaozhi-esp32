@@ -686,6 +686,9 @@ void WallEBoard::CameraBootProbe() {
     const bool cold = reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT;
     if (camera_ == nullptr || camera_->ProbeFrame()) {
         ESP_LOGI(TAG, "Camera boot probe: frames OK (reset reason %d)", (int)reason);
+        if (camera_ != nullptr) {
+            camera_->EnableAutoWhiteBalance();  // frames are flowing now; see walle_camera.h
+        }
         return;
     }
     if (!cold) {

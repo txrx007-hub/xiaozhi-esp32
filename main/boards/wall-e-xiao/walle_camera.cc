@@ -42,28 +42,17 @@ const char* FormatName(v4l2_pix_fmt_t format) {
 
 }  // namespace
 
-WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(config) {}
+WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(config) {
+    EnableAutoWhiteBalance();
+}
 
 WalleCamera::~WalleCamera() { CollageEnd(); }
 
-void WalleCamera::CorrectColorCast() {
-    // YUYV byte order: Y0 U Y1 V, repeating every 4 bytes (2 pixels). Only touch U/V; Y (luma)
-    // carries no color and must be left alone.
-    if (frame_.data == nullptr || frame_.format != V4L2_PIX_FMT_YUYV) {
-        return;
-    }
-    // WALL-E: a single shared bias for U and V left a residual magenta cast (measured on
-    // /debug/photo.jpg?format=yuyv: G channel ~11 points low, B channel ~12 points high relative
-    // to the image average). A first attempt at independent biases (U -30, V -15) overshot the
-    // other way (a wall/ceiling patch measured G +11, B -20 - clearly green/cyan); these values
-    // were computed from that overshoot to land closer to neutral.
-    constexpr int kChromaBiasU = -18;  // U (blue-difference)
-    constexpr int kChromaBiasV = -22;  // V (red-difference)
-    for (size_t i = 0; i + 3 < frame_.len; i += 4) {
-        frame_.data[i + 1] =
-            static_cast<uint8_t>(std::clamp(static_cast<int>(frame_.data[i + 1]) + kChromaBiasU, 0, 255));
-        frame_.data[i + 3] =
-            static_cast<uint8_t>(std::clamp(static_cast<int>(frame_.data[i + 3]) + kChromaBiasV, 0, 255));
+void WalleCamera::EnableAutoWhiteBalance() {
+    constexpr uint16_t kAwbControl3 = 0x5183;
+    constexpr uint8_t kAwbControl3Value = 0x94;
+    if (!WriteSensorReg(kAwbControl3, kAwbControl3Value)) {
+        ESP_LOGW(TAG, "Could not enable the sensor's auto white balance");
     }
 }
 
@@ -78,7 +67,6 @@ bool WalleCamera::Capture() {
     if (!EspVideo::Capture()) {
         return false;
     }
-    CorrectColorCast();
     return true;
 }
 
@@ -114,7 +102,6 @@ bool WalleCamera::CollageAdd(int slot) {
     if (!EspVideo::Capture()) {  // no photo cue for the individual look_around shots
         return false;
     }
-    CorrectColorCast();
     const auto& f = frame_;
     const bool packed_yuv = f.format == V4L2_PIX_FMT_YUYV || f.format == V4L2_PIX_FMT_UYVY;
     if (f.data == nullptr || (!packed_yuv && f.format != V4L2_PIX_FMT_RGB565)) {
@@ -189,101 +176,6 @@ bool WalleCamera::CollageAdd(int slot) {
         }
     }
     return true;
-}
-
-std::vector<uint8_t> WalleCamera::CaptureJpegAs(v4l2_pix_fmt_t as_format) {
-    if (!Capture()) {
-        return {};
-    }
-    uint8_t* out = nullptr;
-    size_t out_len = 0;
-    const bool ok =
-        image_to_jpeg(frame_.data, frame_.len, frame_.width, frame_.height, as_format, 85, &out, &out_len);
-    if (!ok || out == nullptr) {
-        return {};
-    }
-    std::vector<uint8_t> result(out, out + out_len);
-    heap_caps_free(out);  // image_to_jpeg allocates *out with heap_caps_malloc
-    return result;
-}
-
-std::vector<uint8_t> WalleCamera::DebugCaptureJpeg(bool raw) {
-    if (!EspVideo::Capture()) {
-        return {};
-    }
-    if (!raw) {
-        CorrectColorCast();
-    }
-    uint8_t* out = nullptr;
-    size_t out_len = 0;
-    const bool ok = image_to_jpeg(frame_.data, frame_.len, frame_.width, frame_.height,
-                                  frame_.format, 85, &out, &out_len);
-    if (!ok || out == nullptr) {
-        return {};
-    }
-    std::vector<uint8_t> result(out, out + out_len);
-    heap_caps_free(out);
-    return result;
-}
-
-std::string WalleCamera::DebugCaptureStatsJson(bool raw) {
-    if (!EspVideo::Capture()) {
-        return "{\"error\":\"capture failed\"}";
-    }
-    if (!raw) {
-        CorrectColorCast();
-    }
-    if (frame_.data == nullptr || frame_.format != V4L2_PIX_FMT_YUYV) {
-        return "{\"error\":\"frame is not YUYV\"}";
-    }
-    // YUYV: Y0 U Y1 V per 2 pixels. Sums over the whole frame, the center third, and pixel pairs
-    // whose luma is bright (Y >= 170: whites and light surfaces, where a color cast shows most).
-    struct Acc {
-        uint64_t y = 0, u = 0, v = 0, n = 0;
-        void Add(int yy, int uu, int vv) { y += yy; u += uu; v += vv; ++n; }
-        std::string Json() const {
-            char buf[96];
-            if (n == 0) {
-                return "{\"n\":0}";
-            }
-            snprintf(buf, sizeof(buf), "{\"n\":%llu,\"y\":%.1f,\"u\":%.1f,\"v\":%.1f}",
-                     (unsigned long long)n, (double)y / n, (double)u / n, (double)v / n);
-            return buf;
-        }
-    } all, center, bright;
-    const int w = frame_.width;
-    const int h = frame_.height;
-    for (int row = 0; row < h; ++row) {
-        const uint8_t* p = frame_.data + static_cast<size_t>(row) * w * 2;
-        for (int x = 0; x + 1 < w; x += 2, p += 4) {
-            const int yy = (p[0] + p[2]) / 2;
-            all.Add(yy, p[1], p[3]);
-            if (row >= h / 3 && row < 2 * h / 3 && x >= w / 3 && x < 2 * w / 3) {
-                center.Add(yy, p[1], p[3]);
-            }
-            if (yy >= 170) {
-                bright.Add(yy, p[1], p[3]);
-            }
-        }
-    }
-    static constexpr uint16_t kRegs[] = {
-        0x3400, 0x3401, 0x3402, 0x3403, 0x3404, 0x3405, 0x3406,  // AWB manual gains / control
-        0x5001, 0x5180, 0x5183, 0x5196, 0x5197, 0x5198, 0x5199,  // ISP ctrl, AWB ctrl, AWB state
-        0x519a, 0x519b, 0x519c, 0x519d, 0x519e, 0x519f, 0x51a0,
-        0x3503, 0x3a0f, 0x3a10, 0x3820, 0x3821, 0x4300, 0x501f,  // AE, flip, output format
-        0x303d, 0x3824, 0x3814, 0x3815};
-    std::string regs;
-    for (uint16_t reg : kRegs) {
-        char item[24];
-        snprintf(item, sizeof(item), "%s\"%04x\":%d", regs.empty() ? "" : ",", reg,
-                 DebugReadSensorReg(reg));
-        regs += item;
-    }
-    char head[160];
-    snprintf(head, sizeof(head), "{\"sensor_format\":\"%s\",\"width\":%d,\"height\":%d,\"raw\":%s,",
-             DebugSensorFormatName().c_str(), w, h, raw ? "true" : "false");
-    return std::string(head) + "\"all\":" + all.Json() + ",\"center\":" + center.Json() +
-           ",\"bright\":" + bright.Json() + ",\"regs\":{" + regs + "}}";
 }
 
 std::expected<std::string, std::string> WalleCamera::CollageExplain(const std::string& question) {

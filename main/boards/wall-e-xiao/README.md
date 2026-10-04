@@ -161,17 +161,19 @@ visualizer_mode off · log_level warn.
   picture still shows on the bottom half for 2 s either way (`EspVideo::Capture()` -
   `WalleDisplay::SetPreviewImage()`, unrelated to the eyes). The capture itself really could hang
   forever - see `esp_video.cc`'s `VIDIOC_S_DQBUF_TIMEOUT` below - so it wasn't just the eyes.
-- Camera color: this OV3660 module's raw YUYV output carries a uniform magenta/purple cast (its
-  own AWB doesn't correct it, and esp_video/esp_cam_sensor define a white-balance control -
-  `ESP_CAM_SENSOR_WB` - that nothing in this stack actually wires through a V4L2 control, so there
-  is no hardware knob to turn from here). Fixed in software instead: `WalleCamera::CorrectColorCast()`
-  subtracts a bias (found by eye against `/debug/photo.jpg?format=yuyv`, not derived from a
-  calibration) from every U and V byte, pulling the color back toward neutral. U and V each get
-  their own bias, tuned separately - a single shared value for both left a residual magenta tint
-  no matter how far it was pushed (past a point it just turned everything green instead), because
-  U and V weren't off by the same amount. An earlier attempt retagged the frame from YUYV to UYVY,
-  assuming a byte-order swap; that was wrong and made it worse (a banded green/magenta corruption,
-  not a tint) - the sensor's own YUYV tag was correct all along.
+- Camera color: pictures used to have a uniform magenta/purple cast. Root cause (measured, build
+  21-22 diagnostics): the OV3660's auto white balance never engages after start-up - its gain
+  registers (0x3400-0x3405) stay at 1.0, and switching AWB on or off in the ISP gave identical
+  frames. The register tables are byte-identical to the original Wall-E firmware's (checked by
+  extracting the table from its binary) and to esp32-camera's, and the 240x240 mode the original
+  used gives the same cast as our 640x480 one, so it is not a settings or mode difference. A single
+  write of `0x94` to ISP register `0x5183` (bit 7 set; the value Omnivision's reference AWB tables
+  use, where esp_cam_sensor's table has `0x14`) wakes the AWB: gains move to about R 1.00, G 1.5,
+  B 1.07 in room light, a white wall measures U/V 126/124 (neutral = 128), and after deliberately
+  forcing wrong gains it re-converged by itself. `WalleCamera::EnableAutoWhiteBalance()` does the
+  write at construction and again once the boot probe has seen frames. The old software fix
+  (`CorrectColorCast()`, a fixed U/V bias found by eye) is gone - it would over-correct to green
+  now. Earlier dead ends: retagging YUYV as UYVY (banded corruption), mode 240x240 (same cast).
 - Crash reports: random reboots used to leave nothing behind - the panic handler prints a
   backtrace once, live, to the USB serial console, and without a coredump partition that's gone
   the moment nobody was watching. A `coredump` partition (256 KB, carved out of factory's spare

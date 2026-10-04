@@ -423,117 +423,7 @@ void EspVideo::SetExplainUrl(const std::string& url, const std::string& token) {
     explain_token_ = token;
 }
 
-bool EspVideo::DebugSetSensorFormat(const char* match, std::string* chosen) {
-    std::lock_guard<std::mutex> lock(capture_mutex_);
-    if (video_fd_ < 0) {
-        return false;
-    }
-    struct v4l2_sensor_format_enum fmt_enum = {};
-    esp_cam_sensor_format_t target = {};
-    bool found = false;
-    for (fmt_enum.index = 0; ioctl(video_fd_, VIDIOC_ENUM_SENSOR_FMT, &fmt_enum) == 0;
-         fmt_enum.index++) {
-        if (fmt_enum.format.name != nullptr && strstr(fmt_enum.format.name, match) != nullptr) {
-            target = fmt_enum.format;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        ESP_LOGE(TAG, "DebugSetSensorFormat: no compiled-in sensor format matches '%s'", match);
-        return false;
-    }
-
-    // Tear down: stream off, unmap, free buffers (esp_video refuses S_SENSOR_FMT otherwise).
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (streaming_on_) {
-        ioctl(video_fd_, VIDIOC_STREAMOFF, &type);
-        streaming_on_ = false;
-    }
-    for (auto& b : mmap_buffers_) {
-        if (b.start != nullptr && b.length != 0) {
-            munmap(b.start, b.length);
-        }
-    }
-    mmap_buffers_.clear();
-    struct v4l2_requestbuffers req = {};
-    req.count = 0;
-    req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    req.memory = V4L2_MEMORY_MMAP;
-    ioctl(video_fd_, VIDIOC_REQBUFS, &req);
-
-    bool ok = ioctl(video_fd_, VIDIOC_S_SENSOR_FMT, &target) == 0;
-    if (!ok) {
-        ESP_LOGE(TAG, "VIDIOC_S_SENSOR_FMT(%s) failed, errno=%d", target.name, errno);
-    }
-
-    // Bring the stream back up in whatever format the sensor is now in.
-    struct v4l2_format format = {};
-    format.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(video_fd_, VIDIOC_G_FMT, &format) != 0) {
-        ESP_LOGE(TAG, "DebugSetSensorFormat: VIDIOC_G_FMT failed");
-        return false;
-    }
-    struct v4l2_format setformat = {};
-    setformat.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    setformat.fmt.pix.width = format.fmt.pix.width;
-    setformat.fmt.pix.height = format.fmt.pix.height;
-    setformat.fmt.pix.pixelformat = sensor_format_;
-    if (ioctl(video_fd_, VIDIOC_S_FMT, &setformat) != 0) {
-        ESP_LOGE(TAG, "DebugSetSensorFormat: VIDIOC_S_FMT failed");
-        return false;
-    }
-    frame_.width = setformat.fmt.pix.width;
-    frame_.height = setformat.fmt.pix.height;
-
-    req.count = 1;
-    if (ioctl(video_fd_, VIDIOC_REQBUFS, &req) != 0) {
-        ESP_LOGE(TAG, "DebugSetSensorFormat: VIDIOC_REQBUFS failed");
-        return false;
-    }
-    mmap_buffers_.resize(req.count);
-    for (uint32_t i = 0; i < req.count; i++) {
-        struct v4l2_buffer buf = {};
-        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        buf.memory = V4L2_MEMORY_MMAP;
-        buf.index = i;
-        if (ioctl(video_fd_, VIDIOC_QUERYBUF, &buf) != 0) {
-            return false;
-        }
-        void* start =
-            mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, video_fd_, buf.m.offset);
-        if (start == MAP_FAILED) {
-            return false;
-        }
-        mmap_buffers_[i].start = start;
-        mmap_buffers_[i].length = buf.length;
-        if (ioctl(video_fd_, VIDIOC_QBUF, &buf) != 0) {
-            return false;
-        }
-    }
-    if (ioctl(video_fd_, VIDIOC_STREAMON, &type) != 0) {
-        ESP_LOGE(TAG, "DebugSetSensorFormat: VIDIOC_STREAMON failed");
-        return false;
-    }
-    streaming_on_ = true;
-    if (chosen != nullptr) {
-        *chosen = target.name;
-    }
-    ESP_LOGI(TAG, "Sensor format now %s (%ux%u)", target.name, frame_.width, frame_.height);
-    return ok;
-}
-
-std::string EspVideo::DebugSensorFormatName() {
-    std::lock_guard<std::mutex> lock(capture_mutex_);
-    esp_cam_sensor_format_t format = {};
-    if (video_fd_ < 0 || ioctl(video_fd_, VIDIOC_G_SENSOR_FMT, &format) != 0 ||
-        format.name == nullptr) {
-        return "unknown";
-    }
-    return format.name;
-}
-
-bool EspVideo::DebugWriteSensorReg(uint16_t reg, uint8_t value) {
+bool EspVideo::WriteSensorReg(uint16_t reg, uint8_t value) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (video_fd_ < 0) {
         return false;
@@ -550,27 +440,6 @@ bool EspVideo::DebugWriteSensorReg(uint16_t reg, uint8_t value) {
     ctrls.count = 1;
     ctrls.controls = &ctrl;
     return ioctl(video_fd_, VIDIOC_S_EXT_CTRLS, &ctrls) == 0;
-}
-
-int EspVideo::DebugReadSensorReg(uint16_t reg) {
-    std::lock_guard<std::mutex> lock(capture_mutex_);
-    if (video_fd_ < 0) {
-        return -1;
-    }
-    esp_cam_sensor_reg_val_t reg_val = {};
-    reg_val.regaddr = reg;
-    struct v4l2_ext_control ctrl = {};
-    ctrl.id = ESP_CAM_SENSOR_IOC_G_REG;
-    ctrl.size = sizeof(reg_val);
-    ctrl.p_u8 = reinterpret_cast<uint8_t*>(&reg_val);
-    struct v4l2_ext_controls ctrls = {};
-    ctrls.ctrl_class = V4L2_CTRL_CLASS_ESP_CAM_IOCTL;
-    ctrls.count = 1;
-    ctrls.controls = &ctrl;
-    if (ioctl(video_fd_, VIDIOC_G_EXT_CTRLS, &ctrls) != 0) {
-        return -1;
-    }
-    return static_cast<int>(reg_val.value & 0xff);
 }
 
 bool EspVideo::ProbeFrame() {

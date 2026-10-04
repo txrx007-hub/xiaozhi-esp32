@@ -56,14 +56,8 @@ public:
     // WALL-E: quiet "is the sensor delivering frames at all" check - one DQBUF/QBUF, no copy, no
     // preview. True if a frame arrived within the DQBUF timeout (3 s).
     bool ProbeFrame();
-    // WALL-E diagnostics (purple-cast investigation, /debug/cam): switch the sensor to another
-    // compiled-in format whose name contains `match` (stream restarted, buffers re-mapped; flip /
-    // mirror must be re-applied afterwards, the sensor is soft-reset), read the current sensor
-    // format name, and read one raw sensor register (-1 on failure).
-    bool DebugSetSensorFormat(const char* match, std::string* chosen);
-    std::string DebugSensorFormatName();
-    int DebugReadSensorReg(uint16_t reg);
-    bool DebugWriteSensorReg(uint16_t reg, uint8_t value);
+    // WALL-E: write one raw sensor register (via esp_cam_sensor's ioctl pass-through).
+    bool WriteSensorReg(uint16_t reg, uint8_t value);
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;
     virtual bool SetVFlip(bool enabled) override;

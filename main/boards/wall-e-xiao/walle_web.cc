@@ -216,20 +216,41 @@ esp_err_t PostDriveHandler(httpd_req_t* req) {
 //         settle); omitted = keep the current mode. A reboot also returns to 640x480.
 //   out:  jpeg (default) or stats (JSON: mean Y/U/V + sensor white-balance/ISP registers).
 //   raw:  1 (default) = without our software color correction, 0 = with it.
+//   set:  comma list of hex reg:value sensor register writes, applied first, e.g.
+//         set=3406:01,3400:05,3401:20 (a 1.5 s settle follows when anything was written).
+//         Lives only until reboot or the next mode switch (a format switch soft-resets the sensor).
 esp_err_t GetDebugCamHandler(httpd_req_t* req) {
-    char query[64] = {};
+    char query[400] = {};
     char mode[8] = "";
     char out[8] = "jpeg";
     char raw_param[4] = "1";
+    char set_param[300] = "";
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
         httpd_query_key_value(query, "mode", mode, sizeof(mode));
         httpd_query_key_value(query, "out", out, sizeof(out));
         httpd_query_key_value(query, "raw", raw_param, sizeof(raw_param));
+        httpd_query_key_value(query, "set", set_param, sizeof(set_param));
     }
     auto* camera = WallEBoard::Get().walle_camera();
     if (camera == nullptr) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no camera");
         return ESP_FAIL;
+    }
+    if (set_param[0] != '\0') {
+        bool wrote = false;
+        for (char* tok = strtok(set_param, ","); tok != nullptr; tok = strtok(nullptr, ",")) {
+            unsigned reg = 0, value = 0;
+            if (sscanf(tok, "%x:%x", &reg, &value) != 2 || reg > 0xffff || value > 0xff ||
+                !camera->DebugWriteSensorReg(static_cast<uint16_t>(reg),
+                                             static_cast<uint8_t>(value))) {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad or failed register write");
+                return ESP_FAIL;
+            }
+            wrote = true;
+        }
+        if (wrote) {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+        }
     }
     const char* match = strcmp(mode, "240") == 0   ? "YUYV_240x240"
                         : strcmp(mode, "640") == 0 ? "YUYV_640x480"

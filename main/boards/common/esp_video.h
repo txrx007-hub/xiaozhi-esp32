@@ -63,6 +63,7 @@ public:
     bool DebugSetSensorFormat(const char* match, std::string* chosen);
     std::string DebugSensorFormatName();
     int DebugReadSensorReg(uint16_t reg);
+    bool DebugWriteSensorReg(uint16_t reg, uint8_t value);
     // 翻转控制函数
     virtual bool SetHMirror(bool enabled) override;
     virtual bool SetVFlip(bool enabled) override;

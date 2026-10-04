@@ -30,6 +30,12 @@ public:
     // Empty result on failure. Not used by any normal voice/diagnostics path.
     std::vector<uint8_t> CaptureJpegAs(v4l2_pix_fmt_t as_format);
 
+    // WALL-E diagnostics (purple cast, /debug/cam): capture one frame, optionally WITHOUT the
+    // software color correction, and return it as JPEG, or as JSON statistics (mean Y/U/V of the
+    // whole frame, the center, and the bright pixels - a white target should read U = V = 128).
+    std::vector<uint8_t> DebugCaptureJpeg(bool raw);
+    std::string DebugCaptureStatsJson(bool raw);
+
 private:
     // WALL-E: this sensor/module's raw YUYV output carries a uniform magenta/purple color cast
     // (confirmed via /debug/photo.jpg: the byte order itself is correct - retagging it as UYVY,

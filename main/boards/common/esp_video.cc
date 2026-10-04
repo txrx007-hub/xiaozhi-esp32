@@ -423,6 +423,35 @@ void EspVideo::SetExplainUrl(const std::string& url, const std::string& token) {
     explain_token_ = token;
 }
 
+std::string EspVideo::DetectSensorName() {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    if (video_fd_ < 0) {
+        return "";
+    }
+    esp_cam_sensor_id_t id = {};
+    struct v4l2_ext_control ctrl = {};
+    ctrl.id = ESP_CAM_SENSOR_IOC_G_CHIP_ID;
+    ctrl.size = sizeof(id);
+    ctrl.p_u8 = reinterpret_cast<uint8_t*>(&id);
+    struct v4l2_ext_controls ctrls = {};
+    ctrls.ctrl_class = V4L2_CTRL_CLASS_ESP_CAM_IOCTL;
+    ctrls.count = 1;
+    ctrls.controls = &ctrl;
+    if (ioctl(video_fd_, VIDIOC_G_EXT_CTRLS, &ctrls) != 0) {
+        return "unknown";
+    }
+    switch (id.pid) {
+        case 0x3660: return "OV3660";
+        case 0x5640: return "OV5640";
+        case 0x26:   return "OV2640";  // the OV2640 reports a one-byte PID of 0x26
+        default: {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "unknown (PID 0x%04x)", id.pid);
+            return buf;
+        }
+    }
+}
+
 bool EspVideo::WriteSensorReg(uint16_t reg, uint8_t value) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (video_fd_ < 0) {

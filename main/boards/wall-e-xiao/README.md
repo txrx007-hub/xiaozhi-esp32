@@ -96,7 +96,8 @@ a text box for the weather city. Changes save the instant you release the slider
 dropdown, through the same `WalleSettings::Set()` path as voice and the console. A "reset all"
 button is at the bottom. "Motors" and "Audio and wake word" are toggle buttons that expand to
 their settings (closed by default). A Dark/Light slider (bottom right) switches the page theme (saved in the browser, default
-follows the device). The header also shows the board name, MAC address, power mode
+follows the device). The header also shows the board name ("ESP32 S3 Sense"), whether a camera was detected at startup
+and which sensor (OV3660 / OV2640 / OV5640, read from the sensor's own chip ID), MAC address, power mode
 ("mode: console" when a USB host is attached - `usb_serial_jtag_is_connected()`, i.e. SOF packets
 from a PC - or "mode: Battery" when online without one; a power-only USB charger has no host, so it
 reads Battery too), uptime, current state (idle,

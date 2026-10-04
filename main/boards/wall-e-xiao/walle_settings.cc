@@ -74,7 +74,7 @@ WalleSettings::WalleSettings() {
         {"idle_clock_min", Kind::kInt, 0, 120, 5, "show the big clock after this many idle minutes (0 = off)"},
         {"weather_city", Kind::kText, 0, 40, 0, "city for the weather, for example Amsterdam, or off"},
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
-         "what the screen shows while Jarvis speaks: off, winamp, scope, radial, vu, mouth or orb"},
+         "what the screen shows while Jarvis speaks: off, winamp, rainbow, scope, radial, vu, mouth or orb"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
 
@@ -174,7 +174,7 @@ std::string WalleSettings::Range(const Def& def) const {
         case Kind::kLogLevel:
             return "error, warn, info, debug";
         case Kind::kVisualizerMode:
-            return "off, winamp, scope, radial, vu, mouth, orb";
+            return "off, winamp, scope, radial, vu, mouth, orb, rainbow";
         case Kind::kBool:
             return "0 or 1";
         case Kind::kText:
@@ -271,7 +271,7 @@ std::expected<int, std::string> WalleSettings::Parse(const Def& def,
                     return i;
                 }
             }
-            return std::unexpected("visualizer_mode must be off, winamp, scope, radial, vu, mouth or orb.");
+            return std::unexpected("visualizer_mode must be off, winamp, scope, radial, vu, mouth, orb or rainbow.");
 
         default:
             if (!ParseInt(text, value)) {

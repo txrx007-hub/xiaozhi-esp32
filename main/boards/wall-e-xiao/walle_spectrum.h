@@ -22,10 +22,10 @@ struct Frame {
 };
 
 // Selectable via self.display.set_visualizer / setting visualizer_mode; the index is the stored
-// setting value, so only ever append. winamp/scope/mouth draw in the strip under the eyes;
+// setting value, so only ever append. winamp/rainbow/scope/mouth draw in the strip under the eyes;
 // radial/vu/orb replace the eyes with a square canvas while Jarvis speaks.
-enum class Mode { kOff, kWinamp, kScope, kRadial, kVu, kMouth, kOrb };
-constexpr const char* kModeNames[] = {"off", "winamp", "scope", "radial", "vu", "mouth", "orb"};
+enum class Mode { kOff, kWinamp, kScope, kRadial, kVu, kMouth, kOrb, kRainbow };
+constexpr const char* kModeNames[] = {"off", "winamp", "scope", "radial", "vu", "mouth", "orb", "rainbow"};
 constexpr int kModeCount = sizeof(kModeNames) / sizeof(kModeNames[0]);
 
 }  // namespace walle_spectrum

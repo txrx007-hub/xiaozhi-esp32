@@ -68,7 +68,7 @@ public:
     void RequestScreensaver();
 
     // Voice-triggered QR pages (self.display.show_qr): target "settings" (Jarvis's own page), "backend"
-    // (the control panel on the own server) or "both" (one after the other, ~14 s each, about a minute
+    // (the control panel on the own server) or "both" (one after the other, 10 s each, about a minute
     // in all). Same deferral as the screensaver: shown once the spoken reply is done and Jarvis is
     // idle, and gone the moment someone says the wake word. Returns what to tell the user, or why not.
     std::expected<std::string, std::string> RequestQr(const std::string& target);
@@ -109,8 +109,10 @@ private:
     // QR pages (see RequestQr): shares screensaver_spoke_ / screensaver_deadline_us_ while waiting for
     // the reply to finish, since only one of the two can be pending at a time.
     void StartQr();
+    void RefreshQrUrls();
     bool qr_requested_ = false;
     std::vector<WalleDisplay::QrPage> qr_pages_;
+    std::vector<int> qr_kinds_;  // per page: 0 = settings page, 1 = backend
     int64_t qr_start_us_ = 0;
     int qr_index_ = -1;
 

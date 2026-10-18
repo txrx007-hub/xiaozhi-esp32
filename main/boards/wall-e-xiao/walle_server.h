@@ -15,6 +15,10 @@ std::string OtaUrl();
 // True when a URL is saved (own server); false = built-in default (cloud).
 bool IsCustom();
 
+// Opens (and closes) a TCP connection to the saved server to see whether it answers right now, waiting at most
+// timeout_ms. `detail` gets a short phrase either way. Blocks for up to that long: call it from a tool, not a timer.
+bool Reachable(int timeout_ms, std::string* detail);
+
 // Address of the backend control panel (http://<server host>:8090/), taken from the saved server's host.
 // Empty when the robot uses the cloud: then there is no panel of ours to point to.
 std::string PanelUrl();

@@ -270,7 +270,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 "Jarvis's page, settings page, web page, server or backend. target: settings = "
                 "Jarvis's own settings page (the landing page with settings and remote control), "
                 "backend = the Jarvis backend control panel on the user's own server, both (default) = "
-                "both codes one after the other, about 14 seconds each. They appear when this reply "
+                "both codes one after the other, 10 seconds each. They appear when this reply "
                 "has been spoken and disappear after about a minute, or when the user says \"" WAKE_WORD_NAME
                 "\". Tell the user briefly what will be shown; the phone must be on the same Wi-Fi.",
                 PropertyList({Property("target", kPropertyTypeString, std::string("both"))}),

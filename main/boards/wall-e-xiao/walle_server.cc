@@ -4,7 +4,11 @@
 #include <cstdlib>
 #include <utility>
 
+#include <esp_timer.h>
+#include <lwip/netdb.h>
+#include <lwip/sockets.h>
 #include <sdkconfig.h>
+#include <unistd.h>
 
 #include "settings.h"
 
@@ -117,6 +121,44 @@ std::string OtaUrl() {
 bool IsCustom() {
     Settings settings("wifi", false);
     return !settings.GetString(kKey).empty();
+}
+
+bool Reachable(int timeout_ms, std::string* detail) {
+    // host[:port] of the saved OTA URL; the port defaults to 80 (http) or 443 (https)
+    const std::string url = OtaUrl();
+    const size_t scheme = url.find("://");
+    const size_t start = scheme == std::string::npos ? 0 : scheme + 3;
+    const size_t slash = url.find('/', start);
+    std::string host = url.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+    std::string port = url.rfind("https", 0) == 0 ? "443" : "80";
+    const size_t colon = host.rfind(':');
+    if (colon != std::string::npos) {
+        port = host.substr(colon + 1);
+        host.resize(colon);
+    }
+    auto say = [&](const std::string& text) {
+        if (detail != nullptr) *detail = text;
+    };
+    struct addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo* result = nullptr;
+    if (getaddrinfo(host.c_str(), port.c_str(), &hints, &result) != 0 || result == nullptr) {
+        say("could not look up " + host);
+        return false;
+    }
+    const int sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+    struct timeval timeout = {timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+    if (sock >= 0) {
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    }
+    const bool ok = sock >= 0 && connect(sock, result->ai_addr, result->ai_addrlen) == 0;
+    if (sock >= 0) {
+        close(sock);
+    }
+    freeaddrinfo(result);
+    say(ok ? host + " answered" : host + " did not answer");
+    return ok;
 }
 
 std::string PanelUrl() {

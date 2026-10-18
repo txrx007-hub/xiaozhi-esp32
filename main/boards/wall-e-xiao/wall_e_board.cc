@@ -38,7 +38,7 @@ constexpr int kNightVolumeCap = 40;
 constexpr int64_t kPendingTimeoutUs = 25LL * 1000 * 1000;  // nap/sleep even if no reply comes
 constexpr int64_t kRingDurationUs = 60LL * 1000 * 1000;
 constexpr int64_t kRingIntervalUs = 2500LL * 1000;
-constexpr int64_t kQrPageUs = 14LL * 1000 * 1000;   // each QR code stays this long before the next
+constexpr int64_t kQrPageUs = 10LL * 1000 * 1000;   // each QR code stays this long before the next
 constexpr int64_t kQrTotalUs = 60LL * 1000 * 1000;  // then the screen goes back to normal by itself
 
 int64_t NowUs() { return esp_timer_get_time(); }
@@ -413,11 +413,12 @@ std::expected<std::string, std::string> WallEBoard::RequestQr(const std::string&
         return std::unexpected("target must be settings, backend or both");
     }
     std::vector<WalleDisplay::QrPage> pages;
+    std::vector<int> kinds;  // 0 = settings page, 1 = backend; addresses are re-read each time a code is shown
     std::string note;
     if (target != "backend") {
-        const std::string settings_url = walle_web::Url();
-        if (!settings_url.empty()) {
-            pages.push_back({"Jarvis settings page", settings_url});
+        if (*walle_web::Url() != 0) {  // the page's web server is running (so Wi-Fi is up)
+            pages.push_back({"Jarvis settings page", ""});
+            kinds.push_back(0);
         } else if (target == "settings") {
             return std::unexpected("The settings page is not running (no Wi-Fi), so there is nothing to show.");
         }
@@ -426,17 +427,28 @@ std::expected<std::string, std::string> WallEBoard::RequestQr(const std::string&
         const std::string panel_url = walle_server::PanelUrl();
         if (!panel_url.empty()) {
             pages.push_back({"Jarvis backend", panel_url});
+            kinds.push_back(1);
+            // The backend address comes from the saved server address. If the PC got a new address from the
+            // router, the saved one is stale: check that something answers there right now and warn if not.
+            std::string detail;
+            if (!walle_server::Reachable(2000, &detail)) {
+                note += " WARNING: " + detail + " just now, so the backend code may show an outdated address. "
+                        "Tell the user that the PC may have a new IP address and that the server address can be "
+                        "set again on the settings page under Voice server, or with the USB command !server.";
+            }
         } else if (target == "backend") {
             return std::unexpected(
                 "Jarvis is on the cloud server, not on the user's own server, so there is no backend page to show.");
         } else {
-            note = " The backend code is left out because Jarvis is not using the user's own server.";
+            note += " The backend code is left out because Jarvis is not using the user's own server.";
         }
     }
     if (pages.empty()) {
         return std::unexpected("There is nothing to show right now.");
     }
     qr_pages_ = std::move(pages);
+    qr_kinds_ = std::move(kinds);
+    RefreshQrUrls();
 
     std::string what;
     for (size_t i = 0; i < qr_pages_.size(); ++i) {
@@ -451,9 +463,30 @@ std::expected<std::string, std::string> WallEBoard::RequestQr(const std::string&
         screensaver_spoke_ = Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking;
     }
     return "QR codes will appear on the screen as soon as this reply is finished: " + what +
-           ". Each stays about 14 seconds, all gone after a minute or when the user says the wake word. "
+           ". Each stays 10 seconds, all gone after a minute or when the user says the wake word. "
            "Tell the user to point the phone camera at the screen (phone on the same Wi-Fi). The backend "
            "page asks for its PIN once." + note;
+}
+
+// The addresses are read again every time a code is (re)shown, so a new address from the router's DHCP is
+// picked up even while the codes are on screen: the settings page is this robot's current IP, the backend
+// is the host of the saved server address.
+void WallEBoard::RefreshQrUrls() {
+    for (size_t i = 0; i < qr_pages_.size() && i < qr_kinds_.size(); ++i) {
+        if (qr_kinds_[i] == 0) {
+            auto& wifi = WifiManager::GetInstance();
+            if (wifi.IsConnected() && !wifi.GetIpAddress().empty()) {
+                qr_pages_[i].url = "http://" + wifi.GetIpAddress() + "/";
+            } else if (*walle_web::Url() != 0) {
+                qr_pages_[i].url = walle_web::Url();
+            }
+        } else {
+            const std::string panel_url = walle_server::PanelUrl();
+            if (!panel_url.empty()) {
+                qr_pages_[i].url = panel_url;
+            }
+        }
+    }
 }
 
 void WallEBoard::StartQr() {
@@ -461,6 +494,7 @@ void WallEBoard::StartQr() {
     if (qr_pages_.empty()) {
         return;
     }
+    RefreshQrUrls();
     qr_start_us_ = NowUs();
     qr_index_ = 0;
     display_->ShowQr(qr_pages_[0], 0, static_cast<int>(qr_pages_.size()));
@@ -844,6 +878,7 @@ void WallEBoard::Tick() {
             const int index = static_cast<int>((elapsed / kQrPageUs) % static_cast<int64_t>(qr_pages_.size()));
             if (index != qr_index_) {
                 qr_index_ = index;
+                RefreshQrUrls();
                 display_->ShowQr(qr_pages_[index], index, static_cast<int>(qr_pages_.size()));
             }
         }

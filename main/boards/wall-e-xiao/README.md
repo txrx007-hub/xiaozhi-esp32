@@ -177,7 +177,7 @@ holds the one validation routine used by both the USB console and the settings p
   `.lan`): the page has no login and the robot streams its microphone to the server, so anyone on the Wi-Fi must not be
   able to send it to a host on the internet. Both ways reboot the robot.
 * QR codes: voice tool `self.display.show_qr` (target settings / backend / both). Shows full-screen white QR pages on the
-  240x240 screen, one after the other (14 s each, a minute in all), after the spoken reply and until the wake word. The backend
+  240x240 screen, one after the other (10 s each, a minute in all; the addresses are re-read every time a code is shown, and the backend one is first checked with a quick connection test so a changed PC address is reported), after the spoken reply and until the wake word. The backend
   address is the saved server's host + port 8090 (the control panel), so it follows an IP change. The code is drawn from the
   qrcodegen library that esp_emote_gfx already links (LVGL's own QR widget would link a second copy: duplicate symbols).
 * Settings page: "Open Jarvis backend" button (`panel_url` in `/api/status`) opens the panel in a new tab; the panel lets a visit

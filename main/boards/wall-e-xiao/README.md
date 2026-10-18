@@ -163,9 +163,25 @@ connected to the hotspot, or 10 minutes in total, via `WifiManager::StopConfigAp
 setup page's Exit button calls - reconnects to the saved networks, no reboot). Skipped when no
 network is saved. Up to 10 networks are remembered; the strongest saved one is joined.
 
+## Voice server (own back end)
+
+Branch `own-backend`. The robot asks one saved URL (the "OTA URL", NVS `wifi` / `ota_url`) for the address of its
+voice server; changing it switches the whole back end between the xiaozhi.me cloud (the built-in default) and an own
+server on the LAN ([xiaozhi-esp32-server](https://github.com/xinnan-tech/xiaozhi-esp32-server)). `walle_server.cc`
+holds the one validation routine used by both the USB console and the settings page:
+
+* USB console: `!server IP|host[:port]|URL|default` (full control, any host), `!server check VALUE` (dry run: shows what the
+  console and the web page would accept, saves nothing). `IP` becomes `http://IP:8003/xiaozhi/ota/`.
+* Settings page: "Voice server" card, `POST /api/server` (see `web/docs/API.md`), `server` / `server_custom` in
+  `GET /api/status`. **Only LAN addresses are accepted there** (10/8, 172.16/12, 192.168/16, names without dots, `.local`,
+  `.lan`): the page has no login and the robot streams its microphone to the server, so anyone on the Wi-Fi must not be
+  able to send it to a host on the internet. Both ways reboot the robot.
+* Way back to the cloud, whatever happens: "Use cloud" on the page, `!server default` over USB, or the full-flash rollback
+  kit. The page itself keeps working with the own server switched off.
+
 ## USB console
 
-`!status`, `!server IP|URL|default`, `!wifi SSID PASS|list|clear`, `!camera`,
+`!status`, `!server IP|URL|default|check VALUE`, `!wifi SSID PASS|list|clear`, `!camera`,
 `!mic status|gain N|mute|unmute|meter [s]`, `!speaker [vol N|status]`, `!stop`, `!motors`,
 `!face EMOTION [ms]`, `!settings [set KEY VALUE|reset]`, `!standby`/`!nap`, `!wake`,
 `!sleep [MIN]`, `!diag CHECK`, `!timers`, `!weather`, `!pattern [s]`, `!reboot`, `!help`.

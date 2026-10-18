@@ -20,6 +20,7 @@
 #include "system_info.h"
 #include "wall_e_board.h"
 #include "walle_diagnostics.h"
+#include "walle_server.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
 #include "walle_timers.h"
@@ -37,6 +38,7 @@ constexpr const char* kHelp =
     "Jarvis console\n"
     "  !status                 firmware, Wi-Fi, server, memory, camera, tuning\n"
     "  !server IP|URL|default  set the OTA/server URL (IP -> http://IP:8003/xiaozhi/ota/), reboots\n"
+    "  !server check VALUE     dry run: what the console and the web page would accept (saves nothing)\n"
     "  !wifi SSID PASSWORD     add a saved Wi-Fi network   (!wifi list, !wifi clear)\n"
     "  !camera                 capture one camera frame\n"
     "  !mic status|gain N|mute|unmute|meter [s]   (gain in dB, 0-24)\n"
@@ -86,9 +88,7 @@ void Print(const std::string& text) {
 }
 
 std::string OtaUrl() {
-    Settings settings("wifi", false);
-    std::string url = settings.GetString("ota_url");
-    return url.empty() ? std::string(CONFIG_OTA_URL) + " (default)" : url;
+    return walle_server::OtaUrl() + (walle_server::IsCustom() ? "" : " (default)");
 }
 
 void RebootSoon() {
@@ -184,17 +184,22 @@ void Execute(const std::string& line) {
             Print("server: " + OtaUrl());
             return;
         }
-        Settings wifi_settings("wifi", true);
-        if (arg(1) == "default") {
-            wifi_settings.EraseKey("ota_url");
-        } else {
-            std::string url = arg(1);
-            if (url.find("://") == std::string::npos) {
-                url = "http://" + url + ":8003/xiaozhi/ota/";
+        if (arg(1) == "check") {
+            // Dry run: shows what a value would do, as the console and as the web page, saves nothing.
+            for (bool from_web : {false, true}) {
+                auto r = walle_server::Resolve(arg(2), from_web);
+                Print(std::string(from_web ? "web page : " : "console  : ") +
+                      (!r ? "refused: " + r.error() : r->empty() ? "default (cloud)" : *r));
             }
-            wifi_settings.SetString("ota_url", url);
+            return;
         }
-        Print("server set to " + OtaUrl());
+        auto result = walle_server::Set(arg(1), false);
+        if (!result) {
+            Print("not changed: " + result.error());
+            return;
+        }
+        Print(*result);
+        Print("server: " + OtaUrl());
         RebootSoon();
     } else if (cmd == "!wifi") {
         auto& ssids = SsidManager::GetInstance();

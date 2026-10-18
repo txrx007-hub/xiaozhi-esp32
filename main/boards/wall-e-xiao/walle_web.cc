@@ -28,6 +28,7 @@
 #include "system_info.h"
 #include "wall_e_board.h"
 #include "walle_camera.h"
+#include "walle_server.h"
 #include "walle_settings.h"
 #include "wifi_manager.h"
 
@@ -218,6 +219,9 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     // header.
     esp_pm_config_t pm_config = {};
     esp_pm_get_configuration(&pm_config);
+    // Which voice server the robot uses: the xiaozhi.me cloud (default) or an own server.
+    cJSON_AddStringToObject(root, "server", walle_server::OtaUrl().c_str());
+    cJSON_AddBoolToObject(root, "server_custom", walle_server::IsCustom());
     cJSON_AddNumberToObject(root, "cpu_mhz", pm_config.max_freq_mhz);
     cJSON_AddNumberToObject(root, "ram_free_kb", heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
     cJSON_AddNumberToObject(root, "ram_total_kb", heap_caps_get_total_size(MALLOC_CAP_INTERNAL) / 1024);
@@ -376,6 +380,43 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/server  body {"server": "192.168.2.20" | "name.local" | "host:port" | "default"}.
+// Saves the voice server and reboots the robot ~1.5 s after the answer is out. From the page only
+// LAN addresses or "default" (cloud) are accepted - see walle_server.h for why.
+esp_err_t PostServerHandler(httpd_req_t* req) {
+    std::string body;
+    if (!ReadBody(req, body)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad request body");
+        return ESP_FAIL;
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    const cJSON* server = root ? cJSON_GetObjectItem(root, "server") : nullptr;
+    if (!cJSON_IsString(server)) {
+        if (root) cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "expected {\"server\": \"192.168.x.y\" or \"default\"}");
+        return ESP_FAIL;
+    }
+    const std::string value = server->valuestring;
+    cJSON_Delete(root);
+
+    auto result = walle_server::Set(value, true);
+    cJSON* out = cJSON_CreateObject();
+    cJSON_AddBoolToObject(out, "ok", result.has_value());
+    if (result) {
+        cJSON_AddStringToObject(out, "message", (*result + " Restarting in 2 s.").c_str());
+        cJSON_AddStringToObject(out, "server", walle_server::OtaUrl().c_str());
+        cJSON_AddBoolToObject(out, "server_custom", walle_server::IsCustom());
+        ESP_LOGW(TAG, "Voice server changed from the page: %s", result->c_str());
+        Application::GetInstance().Schedule([]() {
+            vTaskDelay(pdMS_TO_TICKS(1500));
+            Application::GetInstance().Reboot();
+        });
+    } else {
+        cJSON_AddStringToObject(out, "message", result.error().c_str());
+    }
+    return SendJson(req, out);
+}
+
 esp_err_t PostResetHandler(httpd_req_t* req) {
     auto done = std::make_shared<std::atomic<bool>>(false);
     Application::GetInstance().Schedule([done]() {
@@ -400,7 +441,7 @@ void Start() {
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 10;
+    config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -418,6 +459,7 @@ void Start() {
         {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
         {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
         {.uri = "/api/power", .method = HTTP_POST, .handler = PostPowerHandler, .user_ctx = nullptr},
+        {.uri = "/api/server", .method = HTTP_POST, .handler = PostServerHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

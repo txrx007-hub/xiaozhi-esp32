@@ -96,10 +96,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- robot
     mcp.AddTool("self.robot.move",
-                "Drive Jarvis. direction: forward, backward, left (spin left in place) or right "
-                "(spin right in place). speed: 0-100 percent (capped by setting motor_max_speed). "
-                "duration_ms: 100-5000. Moves are queued, so several calls run one after another, "
-                "and Jarvis stops by itself after each move. Use self.robot.stop to stop at once.",
+                "Drive Jarvis. direction: forward, backward, left or right (left/right spin in place). speed 0-100 (capped by motor_max_speed), duration_ms 100-5000. Moves queue up and stop by themselves; self.robot.stop stops at once.",
                 PropertyList({Property("direction", kPropertyTypeString),
                               Property("speed", kPropertyTypeInteger, 60, 0, 100),
                               Property("duration_ms", kPropertyTypeInteger, 1000, 100, 5000)}),
@@ -130,9 +127,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.robot.turn",
-                "Turn Jarvis in place by an angle. degrees: -360 to 360; positive turns right "
-                "(clockwise), negative turns left. 'Turn around' is 180. speed: 20-100. Turning is "
-                "timed (calibrated by setting turn_ms_per_90), so the angle is approximate.",
+                "Turn in place by degrees (-360 to 360; positive = right/clockwise, 'turn around' = 180). speed 20-100. Timed, so approximate.",
                 PropertyList({Property("degrees", kPropertyTypeInteger, -360, 360),
                               Property("speed", kPropertyTypeInteger, 60, 20, 100)}),
                 [](const PropertyList& p) -> ToolResult {
@@ -181,8 +176,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.robot.look_around",
-                "Turn around in four 90-degree steps, take a photo at each, and describe the "
-                "surroundings in one answer (takes about 10 seconds). question: what to look for.",
+                "Turn in four 90-degree steps, photograph each, and describe the surroundings in one answer (about 10 s). question: what to look for.",
                 PropertyList({Property("question", kPropertyTypeString,
                                        std::string("Describe what you see in each direction."))}),
                 [](const PropertyList& p) -> ToolResult {
@@ -221,8 +215,8 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- screen
     mcp.AddTool("self.screen.set_emotion",
-                "Show an eye expression on Jarvis's screen for hold_ms, then go back to "
-                "automatic expressions. emotion: one of " + EmotionList() + ".",
+                "Show an eye expression for hold_ms, then go back to automatic. emotion: " +
+                    EmotionList() + ".",
                 PropertyList({Property("emotion", kPropertyTypeString),
                               Property("hold_ms", kPropertyTypeInteger, 3000, 500, 30000)}),
                 [](const PropertyList& p) -> ToolResult {
@@ -237,12 +231,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.display.set_visualizer",
-                "Set what Jarvis's screen shows while it speaks. mode: off (default, plain level "
-                "bars), winamp (32 green/yellow/red spectrum bars with peak-hold dots), rainbow (the same "
-                "bars with a different color per bar across the whole rainbow), scope "
-                "(oscilloscope waveform), mouth (a robot mouth under the eyes that moves with the "
-                "voice), or - replacing the eyes while speaking - radial (spectrum bars around a "
-                "circle), vu (analog VU meter needle) or orb (pulsing rings). Saved.",
+                "Choose what the screen shows while Jarvis speaks. mode: off, winamp, rainbow, scope, mouth (these add to the eyes) or radial, vu, orb (these replace the eyes). Saved.",
                 PropertyList({Property("mode", kPropertyTypeString)}),
                 [](const PropertyList& p) -> ToolResult {
                     auto& settings = WalleSettings::GetInstance();
@@ -255,24 +244,14 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.display.show_screensaver",
-                "Show the idle screen right away (big clock, date and weather) instead of waiting "
-                "for the usual idle timeout - like a screensaver. It goes away by itself the "
-                "instant you say \"" WAKE_WORD_NAME "\" again; there is no separate command to "
-                "turn it off.",
+                "Show the idle clock/weather screen now. It ends when the user says \"" WAKE_WORD_NAME "\".",
                 PropertyList(), [](const PropertyList&) -> ToolResult {
                     WallEBoard::Get().RequestScreensaver();
                     return "Screensaver will show once this reply finishes.";
                 });
 
     mcp.AddTool("self.display.show_qr",
-                "Show QR codes on Jarvis's screen so the user can open pages by scanning them with a "
-                "phone camera. Use it when the user asks for a QR code, for the link or address of "
-                "Jarvis's page, settings page, web page, server or backend. target: settings = "
-                "Jarvis's own settings page (the landing page with settings and remote control), "
-                "backend = the Jarvis backend control panel on the user's own server, both (default) = "
-                "both codes one after the other, 10 seconds each. They appear when this reply "
-                "has been spoken and disappear after about a minute, or when the user says \"" WAKE_WORD_NAME
-                "\". Tell the user briefly what will be shown; the phone must be on the same Wi-Fi.",
+                "Show QR codes on the screen so the user can open pages with a phone camera (same Wi-Fi). Use when asked for a QR code or the link/address of Jarvis's page, settings or backend. target: settings (Jarvis's own page), backend (the control panel on the user's server) or both (default, one after the other). Shown after this reply, gone after about a minute.",
                 PropertyList({Property("target", kPropertyTypeString, std::string("both"))}),
                 [](const PropertyList& p) -> ToolResult {
                     auto result = WallEBoard::Get().RequestQr(p["target"].value<std::string>());
@@ -284,9 +263,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- audio
     mcp.AddTool("self.audio.set_mic_gain",
-                "Set the microphone gain in dB (0-24, default 18). Higher hears quieter speech but "
-                "also more noise. 'More sensitive' means 3 dB above the current value (see "
-                "self.audio.get_tuning). Saved. Tell the user the new value.",
+                "Set the microphone gain in dB (0-24). 'More sensitive' = 3 dB above the current value (see self.audio.get_tuning). Saved; tell the user the new value.",
                 PropertyList({Property("db", kPropertyTypeInteger, 0, 24)}),
                 [](const PropertyList& p) -> ToolResult {
                     auto& settings = WalleSettings::GetInstance();
@@ -298,9 +275,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.audio.set_wake_threshold",
-                "Set how easily the wake word \"" WAKE_WORD_NAME "\" triggers: value from 0.50 to "
-                "0.95 (default 0.52). Lower wakes more easily but may trigger by mistake. 'Wake up "
-                "more easily' means 0.02 lower than now (see self.audio.get_tuning). Saved.",
+                "Set how easily \"" WAKE_WORD_NAME "\" wakes it: 0.50-0.95 (lower = easier, may false-trigger). 'More easily' = 0.02 lower than now (see self.audio.get_tuning). Saved.",
                 PropertyList({Property("value", kPropertyTypeString)}),
                 [](const PropertyList& p) -> ToolResult {
                     auto& settings = WalleSettings::GetInstance();
@@ -340,9 +315,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.settings.set",
-                "Change a Jarvis setting and save it; it applies immediately. key and value: see "
-                "self.settings.list (numbers, 0/1, HH:MM or off for quiet hours, a city name for "
-                "weather_city). Then tell the user what changed.",
+                "Change a Jarvis setting (saved, applies at once). key/value as in self.settings.list: numbers, 0/1, HH:MM or off, a city name for weather_city. Tell the user what changed.",
                 PropertyList({Property("key", kPropertyTypeString),
                               Property("value", kPropertyTypeString)}),
                 [](const PropertyList& p) -> ToolResult {
@@ -364,9 +337,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- system
     mcp.AddTool("self.system.enter_standby",
-                "Take a nap: Jarvis's screen goes dark and it rests, but it stays on Wi-Fi and "
-                "still hears \"" WAKE_WORD_NAME "\". The nap starts when you finish replying. "
-                "Saying the wake word or pressing the BOOT button wakes it.",
+                "Take a nap: the screen goes dark but Jarvis stays on Wi-Fi and still hears \"" WAKE_WORD_NAME "\", which (or the BOOT button) wakes it. Starts when you finish replying.",
                 PropertyList(), [](const PropertyList&) -> ToolResult {
                     auto& board = WallEBoard::Get();
                     board.RequestNap("voice");
@@ -381,9 +352,7 @@ void RegisterWalleTools(WallEBoard& board) {
     // Upstream's tool (22 boards), plus stopping our LAN settings page first: it also listens on
     // port 80 (and httpd's default control port), where the WiFi setup page must start.
     mcp.AddTool("self.system.reconfigure_wifi",
-                "End this conversation and enter WiFi configuration mode (Jarvis opens its own "
-                "hotspot to pick a new network).\n**CAUTION** You must ask the user to confirm "
-                "this action.",
+                "End this conversation and open Jarvis's Wi-Fi setup hotspot. Ask the user to confirm first.",
                 PropertyList(), [](const PropertyList&) -> ToolResult {
                     Application::GetInstance().Schedule([]() {
                         auto& board = WallEBoard::Get();
@@ -395,10 +364,7 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.system.deep_sleep",
-                "Deep sleep to save battery: everything turns off, including Wi-Fi and the wake "
-                "word. Only the BOOT button wakes Jarvis, or the timer if one is given. "
-                "duration_minutes: 0-1440 (for example 2 hours = 120), or wake_at: 'HH:MM' in "
-                "24-hour local time. Before it sleeps, tell the user how Jarvis can be woken.",
+                "Deep sleep to save battery: Wi-Fi and the wake word go off; only the BOOT button or the timer wakes Jarvis. duration_minutes 0-1440 (0 = until BOOT) or wake_at 'HH:MM' (24 h). Tell the user how to wake it first.",
                 PropertyList({Property("duration_minutes", kPropertyTypeInteger, 0, 0, 1440),
                               Property("wake_at", kPropertyTypeString, std::string(""))}),
                 [](const PropertyList& p) -> ToolResult {
@@ -413,10 +379,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- timers
     mcp.AddTool("self.timer.set",
-                "Set a local timer or alarm that rings on Jarvis (even while napping). For a "
-                "countdown give duration_seconds (5-86400, for example 10 minutes = 600); for a "
-                "clock alarm give at as 'HH:MM' (24-hour local time). label: a short name like "
-                "'tea'. Up to 5 timers.",
+                "Set a timer or alarm that rings on Jarvis (even while napping). Countdown: duration_seconds 5-86400. Clock alarm: at 'HH:MM' (24 h). label: short name. Max 5 timers.",
                 PropertyList({Property("duration_seconds", kPropertyTypeInteger, 0, 0, 86400),
                               Property("at", kPropertyTypeString, std::string("")),
                               Property("label", kPropertyTypeString, std::string(""))}),
@@ -453,9 +416,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- weather
     mcp.AddTool("self.weather.get",
-                "Current weather and today's temperature range for Jarvis's city (setting "
-                "weather_city). If no city is set, ask the user for their city and save it with "
-                "self.settings.set key=weather_city.",
+                "Current weather and today's range for the city in setting weather_city. If no city is set, ask the user and save it with self.settings.set key=weather_city.",
                 PropertyList(), [](const PropertyList&) -> ToolResult {
                     TaskPriorityReset priority_reset(1);
                     auto report = WalleWeather::GetInstance().Report();
@@ -467,9 +428,7 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- diagnostics
     mcp.AddTool("self.diagnostics.run_check",
-                "Run one self-check and report the result in plain words. check: wifi, server, "
-                "memory, camera, mic (listens for 2 seconds), speaker (plays a tone), display "
-                "(flashes colors), motors (the wheels twitch briefly), or all.",
+                "Run a self-check and report it in plain words. check: wifi, server, memory, camera, mic, speaker, display, motors or all.",
                 PropertyList({Property("check", kPropertyTypeString)}),
                 [](const PropertyList& p) -> ToolResult {
                     return walle_diagnostics::Run(p["check"].value<std::string>());

@@ -38,13 +38,7 @@ void McpServer::AddCommonTools() {
     // Custom tools must be added in the board's InitializeTools function.
 
     AddTool("self.get_device_status",
-            "Provides the real-time information of the device, including the current status of the "
-            "audio speaker, screen, battery, network, etc.\n"
-            "Use this tool for: \n"
-            "1. Answering questions about current condition (e.g. what is the current volume of "
-            "the audio speaker?)\n"
-            "2. As the first step to control the device (e.g. turn up / down the volume of the "
-            "audio speaker, etc.)",
+            /* WALL-E: shorter text (fewer tokens per request) */ "Real-time device status: speaker volume, screen, battery, network. Use it to answer questions about the current state and before changing the volume.",
             PropertyList(), [&board](const PropertyList& properties) -> ReturnValue {
                 return board.GetDeviceStatusJson();
             });
@@ -92,12 +86,7 @@ void McpServer::AddCommonTools() {
     auto camera = board.GetCamera();
     if (camera) {
         AddTool("self.camera.take_photo",
-                "Always remember you have a camera. If the user asks you to see something, use "
-                "this tool to take a photo and then explain it.\n"
-                "Args:\n"
-                "  `question`: The question that you want to ask about the photo.\n"
-                "Return:\n"
-                "  A JSON object that provides the photo information.",
+                /* WALL-E: shorter text (fewer tokens per request) */ "You have a camera. To see something, take a photo with this and explain it. question: what you want to know about the photo.",
                 PropertyList({Property("question", kPropertyTypeString)}),
                 [camera](const PropertyList& properties) -> ToolResult {
                     // Lower the priority to do the camera capture

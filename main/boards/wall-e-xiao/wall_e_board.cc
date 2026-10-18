@@ -20,6 +20,7 @@
 #include "config.h"
 #include "walle_console.h"
 #include "walle_mcp_tools.h"
+#include "walle_server.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
 #include "walle_spectrum.h"
@@ -37,6 +38,8 @@ constexpr int kNightVolumeCap = 40;
 constexpr int64_t kPendingTimeoutUs = 25LL * 1000 * 1000;  // nap/sleep even if no reply comes
 constexpr int64_t kRingDurationUs = 60LL * 1000 * 1000;
 constexpr int64_t kRingIntervalUs = 2500LL * 1000;
+constexpr int64_t kQrPageUs = 14LL * 1000 * 1000;   // each QR code stays this long before the next
+constexpr int64_t kQrTotalUs = 60LL * 1000 * 1000;  // then the screen goes back to normal by itself
 
 int64_t NowUs() { return esp_timer_get_time(); }
 
@@ -404,6 +407,65 @@ void WallEBoard::RequestScreensaver() {
     screensaver_spoke_ = Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking;
 }
 
+std::expected<std::string, std::string> WallEBoard::RequestQr(const std::string& target_in) {
+    const std::string target = target_in.empty() ? "both" : target_in;
+    if (target != "settings" && target != "backend" && target != "both") {
+        return std::unexpected("target must be settings, backend or both");
+    }
+    std::vector<WalleDisplay::QrPage> pages;
+    std::string note;
+    if (target != "backend") {
+        const std::string settings_url = walle_web::Url();
+        if (!settings_url.empty()) {
+            pages.push_back({"Jarvis settings page", settings_url});
+        } else if (target == "settings") {
+            return std::unexpected("The settings page is not running (no Wi-Fi), so there is nothing to show.");
+        }
+    }
+    if (target != "settings") {
+        const std::string panel_url = walle_server::PanelUrl();
+        if (!panel_url.empty()) {
+            pages.push_back({"Jarvis backend", panel_url});
+        } else if (target == "backend") {
+            return std::unexpected(
+                "Jarvis is on the cloud server, not on the user's own server, so there is no backend page to show.");
+        } else {
+            note = " The backend code is left out because Jarvis is not using the user's own server.";
+        }
+    }
+    if (pages.empty()) {
+        return std::unexpected("There is nothing to show right now.");
+    }
+    qr_pages_ = std::move(pages);
+
+    std::string what;
+    for (size_t i = 0; i < qr_pages_.size(); ++i) {
+        what += (i ? ", then " : "") + qr_pages_[i].title;
+    }
+    if (Application::GetInstance().GetDeviceState() == kDeviceStateIdle && !napping_) {
+        StartQr();
+    } else {
+        // Mid-conversation: wait for the spoken reply to finish, like the screensaver (see Tick()).
+        qr_requested_ = true;
+        screensaver_deadline_us_ = NowUs() + kPendingTimeoutUs;
+        screensaver_spoke_ = Application::GetInstance().GetDeviceState() == kDeviceStateSpeaking;
+    }
+    return "QR codes will appear on the screen as soon as this reply is finished: " + what +
+           ". Each stays about 14 seconds, all gone after a minute or when the user says the wake word. "
+           "Tell the user to point the phone camera at the screen (phone on the same Wi-Fi). The backend "
+           "page asks for its PIN once." + note;
+}
+
+void WallEBoard::StartQr() {
+    qr_requested_ = false;
+    if (qr_pages_.empty()) {
+        return;
+    }
+    qr_start_us_ = NowUs();
+    qr_index_ = 0;
+    display_->ShowQr(qr_pages_[0], 0, static_cast<int>(qr_pages_.size()));
+}
+
 void WallEBoard::RequestNap(const char* reason) {
     ESP_LOGI(TAG, "Nap requested (%s)", reason);
     if (Application::GetInstance().GetDeviceState() == kDeviceStateIdle) {
@@ -689,6 +751,9 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
             display_->ShowIdleClock(true);
             WalleWeather::GetInstance().RefreshInBackground();
         }
+        if (qr_requested_) {
+            StartQr();
+        }
         if (pending_nap_) {
             EnterNapNow();
         }
@@ -769,8 +834,23 @@ void WallEBoard::Tick() {
         }
     }
 
-    // Screensaver requested by voice while talking: same wait, then end the conversation.
-    if (screensaver_requested_ && state_ == kDeviceStateListening && !pending_nap_ &&
+    // QR pages: flip between the codes, and clear the screen after the total time.
+    if (display_->IsQrShown() && qr_pages_.size() > 0) {
+        const int64_t elapsed = now - qr_start_us_;
+        if (elapsed >= kQrTotalUs) {
+            display_->HideQr();
+            qr_index_ = -1;
+        } else {
+            const int index = static_cast<int>((elapsed / kQrPageUs) % static_cast<int64_t>(qr_pages_.size()));
+            if (index != qr_index_) {
+                qr_index_ = index;
+                display_->ShowQr(qr_pages_[index], index, static_cast<int>(qr_pages_.size()));
+            }
+        }
+    }
+
+    // Screensaver or QR pages requested by voice while talking: same wait, then end the conversation.
+    if ((screensaver_requested_ || qr_requested_) && state_ == kDeviceStateListening && !pending_nap_ &&
         !pending_deep_sleep_) {
         auto& app = Application::GetInstance();
         const bool reply_done = screensaver_spoke_ && app.GetAudioService().IsPlaybackIdle();

@@ -264,6 +264,24 @@ void RegisterWalleTools(WallEBoard& board) {
                     return "Screensaver will show once this reply finishes.";
                 });
 
+    mcp.AddTool("self.display.show_qr",
+                "Show QR codes on Jarvis's screen so the user can open pages by scanning them with a "
+                "phone camera. Use it when the user asks for a QR code, for the link or address of "
+                "Jarvis's page, settings page, web page, server or backend. target: settings = "
+                "Jarvis's own settings page (the landing page with settings and remote control), "
+                "backend = the Jarvis backend control panel on the user's own server, both (default) = "
+                "both codes one after the other, about 14 seconds each. They appear when this reply "
+                "has been spoken and disappear after about a minute, or when the user says \"" WAKE_WORD_NAME
+                "\". Tell the user briefly what will be shown; the phone must be on the same Wi-Fi.",
+                PropertyList({Property("target", kPropertyTypeString, std::string("both"))}),
+                [](const PropertyList& p) -> ToolResult {
+                    auto result = WallEBoard::Get().RequestQr(p["target"].value<std::string>());
+                    if (!result) {
+                        return std::unexpected(result.error());
+                    }
+                    return *result;
+                });
+
     // ---------------------------------------------------------------- audio
     mcp.AddTool("self.audio.set_mic_gain",
                 "Set the microphone gain in dB (0-24, default 18). Higher hears quieter speech but "

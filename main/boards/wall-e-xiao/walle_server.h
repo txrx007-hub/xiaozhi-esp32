@@ -15,6 +15,10 @@ std::string OtaUrl();
 // True when a URL is saved (own server); false = built-in default (cloud).
 bool IsCustom();
 
+// Address of the backend control panel (http://<server host>:8090/), taken from the saved server's host.
+// Empty when the robot uses the cloud: then there is no panel of ours to point to.
+std::string PanelUrl();
+
 // Checks `value` the way Set() does but saves nothing. Returns the OTA URL that would be saved, or
 // an empty string for "default" (cloud), or the reason it is refused. Used by `!server check`.
 std::expected<std::string, std::string> Resolve(const std::string& value, bool from_web);

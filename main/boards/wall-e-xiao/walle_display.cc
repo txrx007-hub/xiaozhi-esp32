@@ -817,7 +817,113 @@ void WalleDisplay::SetDigit(int index, int value) {
     }
 }
 
+// Nayuki's qrcodegen, linked in by the esp_emote_gfx component (its header is not on our include path,
+// and these three functions are all we need; C ABI, enums are plain ints). Error correction 0 = LOW,
+// mask -1 = automatic. A QR version 10 symbol is the biggest we allow: 57 x 57 modules, 408 bytes.
+extern "C" {
+bool qrcodegen_encodeText(const char* text, uint8_t tempBuffer[], uint8_t qrcode[], int ecl,
+                          int minVersion, int maxVersion, int mask, bool boostEcl);
+int qrcodegen_getSize(const uint8_t qrcode[]);
+bool qrcodegen_getModule(const uint8_t qrcode[], int x, int y);
+}
+
+namespace {
+constexpr int kQrSize = 164;      // canvas width and height in pixels
+constexpr int kQrBufLen = 410;    // >= ((10 * 4 + 17)^2 + 7) / 8 + 1
+}  // namespace
+
+bool WalleDisplay::DrawQr(const std::string& text) {
+    if (qr_buf_ == nullptr) {
+        return false;
+    }
+    uint8_t temp[kQrBufLen];
+    uint8_t code[kQrBufLen];
+    if (!qrcodegen_encodeText(text.c_str(), temp, code, 0, 1, 10, -1, true)) {
+        return false;  // text too long for version 10
+    }
+    const int modules = qrcodegen_getSize(code);
+    const int scale = std::max(1, kQrSize / modules);
+    const int offset = (kQrSize - modules * scale) / 2;
+    const lv_color_t dark = lv_color_hex(0x000000);
+    lv_canvas_fill_bg(qr_code_, lv_color_hex(0xffffff), LV_OPA_COVER);
+    for (int y = 0; y < modules; ++y) {
+        for (int x = 0; x < modules; ++x) {
+            if (!qrcodegen_getModule(code, x, y)) {
+                continue;
+            }
+            for (int dy = 0; dy < scale; ++dy) {
+                for (int dx = 0; dx < scale; ++dx) {
+                    lv_canvas_set_px(qr_code_, offset + x * scale + dx, offset + y * scale + dy, dark, LV_OPA_COVER);
+                }
+            }
+        }
+    }
+    return true;
+}
+
+void WalleDisplay::CreateQr() {
+    // Static compiled-in font, same reasoning as CreateClock(): never the theme's swappable one.
+    const lv_font_t* font = LV_FONT_DEFAULT;
+    qr_root_ = MakeBox(lv_layer_top(), 0, 0, width_, height_, 0xffffff, 0);
+    qr_title_ = MakeLabel(qr_root_, font, 0x101010, "");
+    lv_obj_align(qr_title_, LV_ALIGN_TOP_MID, 0, 8);
+    // LVGL's own QR widget is not used: the esp_emote_gfx component already links the same
+    // qrcodegen library, and enabling both gives duplicate symbols. We draw the code onto a canvas.
+    qr_code_ = lv_canvas_create(qr_root_);
+    const size_t size = LV_CANVAS_BUF_SIZE(kQrSize, kQrSize, 16, LV_DRAW_BUF_STRIDE_ALIGN);
+    qr_buf_ = static_cast<uint8_t*>(
+        heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (qr_buf_ == nullptr) {
+        ESP_LOGE(TAG, "No memory for the %u byte QR canvas", (unsigned)size);
+    } else {
+        lv_canvas_set_buffer(qr_code_, qr_buf_, kQrSize, kQrSize, LV_COLOR_FORMAT_RGB565);
+        lv_canvas_fill_bg(qr_code_, lv_color_hex(0xffffff), LV_OPA_COVER);
+    }
+    lv_obj_align(qr_code_, LV_ALIGN_TOP_MID, 0, 34);
+    qr_url_ = MakeLabel(qr_root_, font, 0x101010, "");
+    lv_obj_set_width(qr_url_, width_ - 8);
+    lv_obj_set_style_text_align(qr_url_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(qr_url_, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_add_flag(qr_root_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void WalleDisplay::ShowQr(const QrPage& page, int index, int count) {
+    DisplayLockGuard lock(this);
+    if (qr_root_ == nullptr) {
+        CreateQr();
+    }
+    char title[96];
+    if (count > 1) {
+        snprintf(title, sizeof(title), "%d/%d  %s", index + 1, count, page.title.c_str());
+    } else {
+        snprintf(title, sizeof(title), "%s", page.title.c_str());
+    }
+    lv_label_set_text(qr_title_, title);
+    lv_label_set_text(qr_url_, page.url.c_str());
+    if (!DrawQr(page.url)) {
+        ESP_LOGW(TAG, "QR code for %s could not be drawn", page.url.c_str());
+    }
+    lv_obj_remove_flag(qr_root_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(qr_root_);
+    if (status_dot_ != nullptr) {
+        lv_obj_move_foreground(status_dot_);
+    }
+    qr_shown_ = true;
+}
+
+void WalleDisplay::HideQr() {
+    if (!qr_shown_ || qr_root_ == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    lv_obj_add_flag(qr_root_, LV_OBJ_FLAG_HIDDEN);
+    qr_shown_ = false;
+}
+
 void WalleDisplay::ShowIdleClock(bool show) {
+    if (!show) {
+        HideQr();  // every wake-up leaves the idle screen through here, so it also ends a QR page
+    }
     if (clock_root_ == nullptr || show == clock_shown_) {
         return;
     }

@@ -14,6 +14,7 @@ namespace {
 
 const char* const kKey = "ota_url";
 constexpr int kDefaultPort = 8003;
+constexpr int kPanelPort = 8090;  // the backend control panel (panel.py) of the own server
 constexpr size_t kMaxUrlLength = 200;
 
 std::string Trim(const std::string& s) {
@@ -116,6 +117,26 @@ std::string OtaUrl() {
 bool IsCustom() {
     Settings settings("wifi", false);
     return !settings.GetString(kKey).empty();
+}
+
+std::string PanelUrl() {
+    if (!IsCustom()) {
+        return "";
+    }
+    // http://HOST[:PORT]/xiaozhi/ota/  ->  HOST
+    const std::string url = OtaUrl();
+    const size_t scheme = url.find("://");
+    const size_t start = scheme == std::string::npos ? 0 : scheme + 3;
+    const size_t slash = url.find('/', start);
+    std::string host = url.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+    const size_t colon = host.rfind(':');
+    if (colon != std::string::npos) {
+        host.resize(colon);
+    }
+    if (host.empty()) {
+        return "";
+    }
+    return "http://" + host + ":" + std::to_string(kPanelPort) + "/";
 }
 
 std::expected<std::string, std::string> Resolve(const std::string& value, bool from_web) {

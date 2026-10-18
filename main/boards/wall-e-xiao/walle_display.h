@@ -55,6 +55,17 @@ public:
     void RefreshIdleClock();  // call about once per second while shown
     void SetWeatherLine(const std::string& line);
 
+    // QR page: a full-screen white page with a QR code, a title and the address under it, drawn over
+    // everything (like the idle clock). Hidden by HideQr(), and automatically by ShowIdleClock(false),
+    // which every wake-up goes through.
+    struct QrPage {
+        std::string title;
+        std::string url;
+    };
+    void ShowQr(const QrPage& page, int index, int count);
+    void HideQr();
+    bool IsQrShown() const { return qr_shown_; }
+
     void ShowTestPattern(int duration_ms);
     void FlashColors();  // red, green, blue, white, 400 ms each
 
@@ -146,4 +157,13 @@ private:
     bool clock_shown_ = false;
     int clock_last_minute_ = -1;
     std::string weather_line_;
+
+    void CreateQr();  // lazily, the first time a QR page is shown (the code canvas needs memory)
+    bool DrawQr(const std::string& text);  // false if the text is too long for a version-10 code
+    uint8_t* qr_buf_ = nullptr;            // PSRAM canvas buffer for the code
+    lv_obj_t* qr_root_ = nullptr;
+    lv_obj_t* qr_title_ = nullptr;
+    lv_obj_t* qr_code_ = nullptr;
+    lv_obj_t* qr_url_ = nullptr;
+    std::atomic<bool> qr_shown_{false};
 };

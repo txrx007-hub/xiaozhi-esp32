@@ -176,6 +176,14 @@ holds the one validation routine used by both the USB console and the settings p
   `GET /api/status`. **Only LAN addresses are accepted there** (10/8, 172.16/12, 192.168/16, names without dots, `.local`,
   `.lan`): the page has no login and the robot streams its microphone to the server, so anyone on the Wi-Fi must not be
   able to send it to a host on the internet. Both ways reboot the robot.
+* QR codes: voice tool `self.display.show_qr` (target settings / backend / both). Shows full-screen white QR pages on the
+  240x240 screen, one after the other (14 s each, a minute in all), after the spoken reply and until the wake word. The backend
+  address is the saved server's host + port 8090 (the control panel), so it follows an IP change. The code is drawn from the
+  qrcodegen library that esp_emote_gfx already links (LVGL's own QR widget would link a second copy: duplicate symbols).
+* Settings page: "Open Jarvis backend" button (`panel_url` in `/api/status`) opens the panel in a new tab; the panel lets a visit
+  that came from the robot's page in without its PIN (switchable in the panel).
+* Volume: `/api/status` reports `volume` (playing), `volume_requested` and `volume_cap`; `POST /api/volume?value=` sets the requested
+  volume. The speaker plays at min(requested, `max_volume` cap), which the old page showed only half of.
 * Way back to the cloud, whatever happens: "Use cloud" on the page, `!server default` over USB, or the full-flash rollback
   kit. The page itself keeps working with the own server switched off.
 

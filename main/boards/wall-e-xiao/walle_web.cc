@@ -209,6 +209,13 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
         cJSON_AddNumberToObject(root, "audio_in_hz", codec->input_sample_rate());
         cJSON_AddNumberToObject(root, "audio_out_hz", codec->output_sample_rate());
     }
+    // The speaker plays at min(requested volume, max_volume cap). The page's "Max volume" slider is only
+    // the cap, so show all three: what is actually playing, what was asked for, and the cap.
+    if (auto* wc = board.walle_codec(); wc != nullptr) {
+        cJSON_AddNumberToObject(root, "volume", wc->output_volume());
+        cJSON_AddNumberToObject(root, "volume_requested", wc->requested_volume());
+        cJSON_AddNumberToObject(root, "volume_cap", wc->volume_cap());
+    }
     // A USB host (the PC console) sending SOF packets means USB is plugged in. Online without it
     // can only mean the battery. A power-only charger has no host, so it also reads "battery".
     cJSON_AddStringToObject(root, "power", usb_serial_jtag_is_connected() ? "console" : "battery");
@@ -222,6 +229,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     // Which voice server the robot uses: the xiaozhi.me cloud (default) or an own server.
     cJSON_AddStringToObject(root, "server", walle_server::OtaUrl().c_str());
     cJSON_AddBoolToObject(root, "server_custom", walle_server::IsCustom());
+    cJSON_AddStringToObject(root, "panel_url", walle_server::PanelUrl().c_str());  // "" on the cloud
     cJSON_AddNumberToObject(root, "cpu_mhz", pm_config.max_freq_mhz);
     cJSON_AddNumberToObject(root, "ram_free_kb", heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
     cJSON_AddNumberToObject(root, "ram_total_kb", heap_caps_get_total_size(MALLOC_CAP_INTERNAL) / 1024);
@@ -380,6 +388,35 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/volume?value=0..100: the requested speaker volume (the same one "turn the volume up" sets,
+// saved). The speaker plays at min(value, max_volume cap); the reply says what that works out to.
+esp_err_t PostVolumeHandler(httpd_req_t* req) {
+    char query[32] = {};
+    char value[8] = {};
+    int volume = -1;
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK &&
+        httpd_query_key_value(query, "value", value, sizeof(value)) == ESP_OK) {
+        volume = atoi(value);
+    }
+    if (volume < 0 || volume > 100) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "value must be 0 to 100");
+        return ESP_FAIL;
+    }
+    auto* codec = WallEBoard::Get().walle_codec();
+    const int cap = codec != nullptr ? codec->volume_cap() : 100;
+    Application::GetInstance().Schedule([volume]() {
+        if (auto* c = WallEBoard::Get().walle_codec(); c != nullptr) {
+            c->SetOutputVolume(volume);
+        }
+    });
+    cJSON* out = cJSON_CreateObject();
+    cJSON_AddBoolToObject(out, "ok", true);
+    cJSON_AddNumberToObject(out, "volume_requested", volume);
+    cJSON_AddNumberToObject(out, "volume", std::min(volume, cap));
+    cJSON_AddNumberToObject(out, "volume_cap", cap);
+    return SendJson(req, out);
+}
+
 // POST /api/server  body {"server": "192.168.2.20" | "name.local" | "host:port" | "default"}.
 // Saves the voice server and reboots the robot ~1.5 s after the answer is out. From the page only
 // LAN addresses or "default" (cloud) are accepted - see walle_server.h for why.
@@ -460,6 +497,7 @@ void Start() {
         {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
         {.uri = "/api/power", .method = HTTP_POST, .handler = PostPowerHandler, .user_ctx = nullptr},
         {.uri = "/api/server", .method = HTTP_POST, .handler = PostServerHandler, .user_ctx = nullptr},
+        {.uri = "/api/volume", .method = HTTP_POST, .handler = PostVolumeHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

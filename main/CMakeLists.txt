@@ -1043,6 +1043,11 @@ file(GLOB COMMON_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/common/*.ogg)
 file(GLOB BOARD_SOUNDS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/*.ogg)
 # WALL-E: a board may embed its own web page(s) (boards/<dir>/web/*.html)
 file(GLOB BOARD_WEB_FILES ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/web/*.html)
+# The wall-e-xiao page lives in its own repository, checked out as a git submodule at boards/wall-e-xiao/web.
+if(BOARD_DIR STREQUAL "wall-e-xiao" AND NOT BOARD_WEB_FILES)
+    message(FATAL_ERROR "boards/wall-e-xiao/web/index.html is missing: the landing page is a git submodule. "
+                        "Run:  git submodule update --init   (or clone with --recurse-submodules)")
+endif()
 
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)

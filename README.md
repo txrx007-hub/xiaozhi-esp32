@@ -1,3 +1,22 @@
+# Jarvis: a voice robot on xiaozhi-esp32 (branch `wall-e`)
+
+<img src="main/boards/wall-e-xiao/docs/jarvis.jpg" width="260" align="right" alt="The Jarvis robot in a hand">
+
+This branch of the xiaozhi-esp32 fork is **Jarvis**, a small tracked voice robot on a Seeed XIAO ESP32-S3 Sense
+(wake word "Jarvis", camera, display with animated eyes, two motors, settings page, Android app).
+Everything specific to it is in [`main/boards/wall-e-xiao`](main/boards/wall-e-xiao): the board code, the
+build and flash instructions, and notes on every change made to the upstream firmware.
+
+| | |
+|---|---|
+| **Firmware and builds** | [board page](main/boards/wall-e-xiao/README.md) · [releases with ready-to-flash files](https://github.com/txrx007-hub/xiaozhi-esp32/releases) |
+| **Landing page** (settings, remote control) | [jarvis-landing-page](https://github.com/txrx007-hub/jarvis-landing-page) |
+| **Android app** | [jarvis-robot-android](https://github.com/txrx007-hub/jarvis-robot-android) · [APK download](https://github.com/txrx007-hub/jarvis-robot-android/releases/latest) |
+
+Clone everything: `git clone --recurse-submodules -b wall-e https://github.com/txrx007-hub/xiaozhi-esp32.git`
+
+---
+
 # An MCP-based Chatbot
 
 (English | [中文](README_zh.md) | [日本語](README_ja.md))

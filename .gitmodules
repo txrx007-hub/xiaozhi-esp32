@@ -1,0 +1,8 @@
+[submodule "android"]
+	path = android
+	url = https://github.com/txrx007-hub/jarvis-robot-android.git
+	branch = main
+[submodule "main/boards/wall-e-xiao/web"]
+	path = main/boards/wall-e-xiao/web
+	url = https://github.com/txrx007-hub/jarvis-landing-page.git
+	branch = main

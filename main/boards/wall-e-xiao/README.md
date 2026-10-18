@@ -1,7 +1,32 @@
 # Wall-E robot ("Jarvis") on a Seeed XIAO ESP32-S3 Sense
 
+<img src="docs/jarvis.jpg" width="300" align="right" alt="The Jarvis robot in a hand">
+
 Custom xiaozhi board for the Huy Vector Wall-E build (hardware only; his firmware is not used).
 The robot answers to **"Jarvis"** (WakeNet9 `wn9_jarvis_tts`).
+
+## Parts of the project
+
+This repository is the **firmware**. Two companion parts live in their own repositories and are included
+here as git submodules, so you can build everything together or each part on its own:
+
+| Part | Repository | Where it sits here |
+|---|---|---|
+| Firmware (this repo, branch `wall-e`) | [xiaozhi-esp32](https://github.com/txrx007-hub/xiaozhi-esp32/tree/wall-e) | the whole tree |
+| Landing page (settings + remote control, one HTML file, with a fake robot for development) | [jarvis-landing-page](https://github.com/txrx007-hub/jarvis-landing-page) | `main/boards/wall-e-xiao/web/` (embedded into the firmware when it is built) |
+| Android app with the same screens | [jarvis-robot-android](https://github.com/txrx007-hub/jarvis-robot-android) | `android/` (separate Gradle project, not part of the firmware build) |
+
+```
+git clone --recurse-submodules -b wall-e https://github.com/txrx007-hub/xiaozhi-esp32.git   # everything
+git submodule update --init                                                                  # if you cloned without it
+```
+
+- **Firmware only**: you need the landing page (the build stops with a message if `web/` is empty), but not
+  the app. `git submodule update --init main/boards/wall-e-xiao/web` is enough.
+- **Landing page only**: clone [jarvis-landing-page](https://github.com/txrx007-hub/jarvis-landing-page) and run its fake robot, no hardware needed.
+- **App only**: clone [jarvis-robot-android](https://github.com/txrx007-hub/jarvis-robot-android) or take the APK from its [releases](https://github.com/txrx007-hub/jarvis-robot-android/releases).
+- The HTTP commands that tie the three together are described in the landing page repository (`docs/API.md`).
+
 
 | Part | Details |
 |---|---|
@@ -87,6 +112,12 @@ instead of after the server's ~100 s session timeout) ·
 blank screen while napping · timer alert · `!pattern` test pattern.
 
 ## LAN settings page
+
+The page itself is the [jarvis-landing-page](https://github.com/txrx007-hub/jarvis-landing-page) submodule in
+`web/` (edit it there; the firmware embeds `web/index.html`). Screenshots, from the fake robot:
+
+<img src="https://raw.githubusercontent.com/txrx007-hub/jarvis-landing-page/main/docs/screenshots/landing-top-dark.png" width="230"> <img src="https://raw.githubusercontent.com/txrx007-hub/jarvis-landing-page/main/docs/screenshots/landing-remote-dark.png" width="230"> <img src="https://raw.githubusercontent.com/txrx007-hub/jarvis-landing-page/main/docs/screenshots/landing-settings-light.png" width="230">
+
 
 `http://<robot-ip>/` (also shown by `!status` and the console). Plain HTTP, no login — your
 home network only, same trust level as the USB console. Every setting gets the matching

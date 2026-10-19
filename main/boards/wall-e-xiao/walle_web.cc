@@ -209,8 +209,8 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
         cJSON_AddNumberToObject(root, "audio_in_hz", codec->input_sample_rate());
         cJSON_AddNumberToObject(root, "audio_out_hz", codec->output_sample_rate());
     }
-    // The speaker plays at min(requested volume, max_volume cap). The page's "Max volume" slider is only
-    // the cap, so show all three: what is actually playing, what was asked for, and the cap.
+    // The speaker plays at min(requested volume, limit). There is no user-set cap any more: the limit is 100, or 40 during
+    // quiet hours. Report what is playing, what was asked for, and the limit.
     if (auto* wc = board.walle_codec(); wc != nullptr) {
         cJSON_AddNumberToObject(root, "volume", wc->output_volume());
         cJSON_AddNumberToObject(root, "volume_requested", wc->requested_volume());
@@ -389,7 +389,7 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
 }
 
 // POST /api/volume?value=0..100: the requested speaker volume (the same one "turn the volume up" sets,
-// saved). The speaker plays at min(value, max_volume cap); the reply says what that works out to.
+// saved). The speaker plays at min(value, night-mode limit); the reply says what that works out to.
 esp_err_t PostVolumeHandler(httpd_req_t* req) {
     char query[32] = {};
     char value[8] = {};

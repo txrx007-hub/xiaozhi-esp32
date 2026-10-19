@@ -66,7 +66,6 @@ WalleSettings::WalleSettings() {
         {"soft_start_ms", Kind::kInt, 0, 1000, 200, "ramp-up time that limits current spikes"},
         {"mic_gain_db", Kind::kInt, 0, 24, 18, "software microphone gain in dB"},
         {"wake_threshold", Kind::kHundredths, 50, 95, 52, "wake word threshold, lower wakes more easily"},
-        {"max_volume", Kind::kInt, 30, 100, 80, "speaker volume cap (brownout protection)"},
         {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},
         {"quiet_start", Kind::kTimeOfDay, -1, 1439, -1, "night mode start, HH:MM or off"},
@@ -86,6 +85,13 @@ WalleSettings::WalleSettings() {
             migrate.EraseKey("motor_max_speed");
             migrate.EraseKey("shutter_sound");
             migrate.SetInt("cfg_ver", 2);
+        }
+        // v3: full power and full volume by default. The speaker volume cap (max_volume) is gone, and a motor cap saved
+        // by an earlier build is dropped so the 100% default applies again.
+        if (migrate.GetInt("cfg_ver", 0) < 3) {
+            migrate.EraseKey("motor_max_speed");
+            migrate.EraseKey("max_volume");
+            migrate.SetInt("cfg_ver", 3);
         }
     }
 

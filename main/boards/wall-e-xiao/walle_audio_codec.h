@@ -8,7 +8,7 @@
 
 // PDM microphone + MAX98357A, with Wall-E extras: software mic gain applied before the
 // wake word engine and the upload, a level meter, mic mute, and a volume cap
-// (max_volume, lowered further in night mode).
+// (100 unless night mode lowers it).
 class WalleAudioCodec : public NoAudioCodecSimplexPdm {
 public:
     struct Level {

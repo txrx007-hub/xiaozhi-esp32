@@ -96,9 +96,9 @@ void RegisterWalleTools(WallEBoard& board) {
 
     // ---------------------------------------------------------------- robot
     mcp.AddTool("self.robot.move",
-                "Drive Jarvis. direction: forward, backward, left or right (left/right spin in place). speed 0-100 (capped by motor_max_speed), duration_ms 100-5000. Moves queue up and stop by themselves; self.robot.stop stops at once.",
+                "Drive Jarvis. direction: forward, backward, left or right (left/right spin in place). speed 0-100 (default 100, capped by motor_max_speed), duration_ms 100-5000. Moves queue up and stop by themselves; self.robot.stop stops at once.",
                 PropertyList({Property("direction", kPropertyTypeString),
-                              Property("speed", kPropertyTypeInteger, 60, 0, 100),
+                              Property("speed", kPropertyTypeInteger, 100, 0, 100),
                               Property("duration_ms", kPropertyTypeInteger, 1000, 100, 5000)}),
                 [](const PropertyList& p) -> ToolResult {
                     auto& board = WallEBoard::Get();
@@ -127,9 +127,9 @@ void RegisterWalleTools(WallEBoard& board) {
                 });
 
     mcp.AddTool("self.robot.turn",
-                "Turn in place by degrees (-360 to 360; positive = right/clockwise, 'turn around' = 180). speed 20-100. Timed, so approximate.",
+                "Turn in place by degrees (-360 to 360; positive = right/clockwise, 'turn around' = 180). speed 20-100 (default 100). Timed, so approximate.",
                 PropertyList({Property("degrees", kPropertyTypeInteger, -360, 360),
-                              Property("speed", kPropertyTypeInteger, 60, 20, 100)}),
+                              Property("speed", kPropertyTypeInteger, 100, 20, 100)}),
                 [](const PropertyList& p) -> ToolResult {
                     auto& board = WallEBoard::Get();
                     auto& settings = WalleSettings::GetInstance();
@@ -296,8 +296,7 @@ void RegisterWalleTools(WallEBoard& board) {
                            " dB; wake threshold " +
                            settings.FormatCurrent(*settings.Find("wake_threshold")) +
                            " (while Jarvis talks it uses the model default); volume " +
-                           std::to_string(codec->output_volume()) + ", max_volume " +
-                           std::to_string(settings.GetInt("max_volume")) +
+                           std::to_string(codec->output_volume()) +
                            (board.QuietHoursActive() ? " (night mode cap 40 is active)." : ".");
                 });
 

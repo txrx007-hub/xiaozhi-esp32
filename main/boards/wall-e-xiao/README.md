@@ -183,7 +183,7 @@ holds the one validation routine used by both the USB console and the settings p
 * Settings page: "Open Jarvis backend" button (`panel_url` in `/api/status`) opens the panel in a new tab; the panel lets a visit
   that came from the robot's page in without its PIN (switchable in the panel).
 * Volume: `/api/status` reports `volume` (playing), `volume_requested` and `volume_cap`; `POST /api/volume?value=` sets the requested
-  volume. The speaker plays at min(requested, `max_volume` cap), which the old page showed only half of.
+  volume. The speaker plays at the requested volume; the old `max_volume` cap is gone (100% is full volume), only night mode (quiet hours) limits it.
 * Way back to the cloud, whatever happens: "Use cloud" on the page, `!server default` over USB, or the full-flash rollback
   kit. The page itself keeps working with the own server switched off.
 
@@ -198,7 +198,7 @@ holds the one validation routine used by both the USB console and the settings p
 
 motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / motor_b_invert /
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
-speaking) · max_volume 80 · shutter_sound 1 · wake_chirp 1 · quiet_start /
+speaking) · shutter_sound 1 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
 visualizer_mode off · log_level warn.
 

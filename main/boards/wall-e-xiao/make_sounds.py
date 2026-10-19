@@ -64,8 +64,9 @@ def tone(freq, seconds, amp):
 
 def wake_chirp():
     # two quick rising "bee-boop" sweeps, about 0.35 s
-    # Regenerated 2026-10-19: the chirp file that shipped before was about twice as loud (mean -4.7 dB, peak 0 dB); this one
-    # measures mean -10.4 dB, peak -0.6 dB, i.e. half the amplitude, as asked.
+    # NOTE: the chirp that ships on the robot is NOT this one. It is the custom R2-D2 chirp from build 13
+    # (kept as wake_chirp_r2d2_full_volume.ogg.orig; wake_chirp.ogg is that sound at half amplitude, made with
+    # ffmpeg -af volume=0.5). This function is only the original generic fallback, so main() skips it unless asked.
     return sweep(900, 1600, 0.13, 0.55) + silence(0.03) + sweep(1300, 2200, 0.18, 0.55, 60)
 
 
@@ -106,6 +107,8 @@ def main():
         for name, samples in sounds.items():
             if only and name != only:
                 continue
+            if name == "wake_chirp" and only != "wake_chirp":
+                continue  # never overwrite the shipped R2-D2 chirp by accident (see wake_chirp())
             wav = os.path.join(tmp, name + ".wav")
             write_wav(wav, samples)
             out = os.path.join(HERE, name + ".ogg")

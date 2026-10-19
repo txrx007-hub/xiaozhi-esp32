@@ -72,6 +72,7 @@ std::expected<std::string, std::string> HttpGet(const std::string& url) {
     }
     auto status = http->GetStatusCode();
     if (!status || *status != 200) {
+        ESP_LOGW(TAG, "Weather service answered with HTTP status %d", status ? static_cast<int>(*status) : -1);
         http->Close();
         return std::unexpected("the weather service answered with an error");
     }
@@ -240,8 +241,17 @@ void WalleWeather::RefreshInBackground(int max_age_s) {
     xTaskCreate(
         [](void* arg) {
             auto* self = static_cast<WalleWeather*>(arg);
-            if (auto result = self->Fetch(); !result) {
-                ESP_LOGW(TAG, "Weather refresh failed: %s", result.error().c_str());
+            // One retry: a single request can fail right after the WiFi switches to power-save mode.
+            for (int attempt = 0; attempt < 2; ++attempt) {
+                auto result = self->Fetch();
+                if (result) {
+                    break;
+                }
+                ESP_LOGW(TAG, "Weather refresh failed: %s%s", result.error().c_str(),
+                         attempt == 0 ? " (trying once more)" : "");
+                if (attempt == 0) {
+                    vTaskDelay(pdMS_TO_TICKS(2500));
+                }
             }
             {
                 std::lock_guard<std::mutex> lock(self->mutex_);

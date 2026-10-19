@@ -64,6 +64,8 @@ def tone(freq, seconds, amp):
 
 def wake_chirp():
     # two quick rising "bee-boop" sweeps, about 0.35 s
+    # Regenerated 2026-10-19: the chirp file that shipped before was about twice as loud (mean -4.7 dB, peak 0 dB); this one
+    # measures mean -10.4 dB, peak -0.6 dB, i.e. half the amplitude, as asked.
     return sweep(900, 1600, 0.13, 0.55) + silence(0.03) + sweep(1300, 2200, 0.18, 0.55, 60)
 
 
@@ -100,7 +102,10 @@ def main():
     sounds = {"wake_chirp": wake_chirp(), "shutter": shutter(), "tone": test_tone(),
               "alarm": alarm()}
     with tempfile.TemporaryDirectory() as tmp:
+        only = os.environ.get("ONLY")  # e.g. ONLY=wake_chirp regenerates just that file
         for name, samples in sounds.items():
+            if only and name != only:
+                continue
             wav = os.path.join(tmp, name + ".wav")
             write_wav(wav, samples)
             out = os.path.join(HERE, name + ".ogg")

@@ -436,6 +436,20 @@ esp_err_t PostVolumeHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/stop: stops what Jarvis is saying or playing (a song, a radio stream) at once: the same as pressing the button while it speaks. The landing page's Stop button.
+esp_err_t PostStopHandler(httpd_req_t* req) {
+    Application::GetInstance().Schedule([]() {
+        auto& app = Application::GetInstance();
+        if (app.GetDeviceState() == kDeviceStateSpeaking) {
+            app.GetAudioService().ResetDecoder();
+            app.AbortSpeaking(kAbortReasonNone);
+        }
+    });
+    cJSON* out = cJSON_CreateObject();
+    cJSON_AddBoolToObject(out, "ok", true);
+    return SendJson(req, out);
+}
+
 // POST /api/photo: one picture from the camera as a JPEG (the page's Camera button). A POST, so that another web page cannot show it by pointing an
 // <img> at the robot (it could not read the answer of a POST either). The screen shows the picture for 2 s as for any photo; no shutter sound.
 esp_err_t SendPhotoError(httpd_req_t* req, const char* message) {  // IDF has no HTTPD_503 constant: set the status text ourselves
@@ -527,7 +541,7 @@ void Start() {
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 16;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -548,6 +562,7 @@ void Start() {
         {.uri = "/api/server", .method = HTTP_POST, .handler = PostServerHandler, .user_ctx = nullptr},
         {.uri = "/api/volume", .method = HTTP_POST, .handler = PostVolumeHandler, .user_ctx = nullptr},
         {.uri = "/api/photo", .method = HTTP_POST, .handler = PostPhotoHandler, .user_ctx = nullptr},
+        {.uri = "/api/stop", .method = HTTP_POST, .handler = PostStopHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

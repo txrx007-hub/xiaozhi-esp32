@@ -56,6 +56,9 @@ public:
     // WALL-E: quiet "is the sensor delivering frames at all" check - one DQBUF/QBUF, no copy, no
     // preview. True if a frame arrived within the DQBUF timeout (3 s).
     bool ProbeFrame();
+    // WALL-E: one picture as a JPEG for the settings page's Camera button: no sound, no analysis, nothing sent anywhere. On success *out is the
+    // JPEG (allocated here, the caller frees it with heap_caps_free) and *out_len its size.
+    bool CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len);
     // WALL-E: write one raw sensor register (via esp_cam_sensor's ioctl pass-through).
     bool WriteSensorReg(uint16_t reg, uint8_t value);
     // WALL-E: a video device was opened, i.e. esp_video found and initialized a camera sensor.

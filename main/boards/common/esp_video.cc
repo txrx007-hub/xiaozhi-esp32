@@ -489,6 +489,45 @@ bool EspVideo::ProbeFrame() {
     return true;
 }
 
+bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len) {
+    *out = nullptr;
+    *out_len = 0;
+    if (!EspVideo::Capture()) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo
+        return false;
+    }
+    FrameBuffer snap;
+    {
+        // Another capture (a spoken "take a photo") may replace frame_ the moment the lock is free: work on a private copy.
+        std::lock_guard<std::mutex> lock(capture_mutex_);
+        if (frame_.data == nullptr || frame_.len == 0) {
+            return false;
+        }
+        snap = frame_;
+        snap.data = (uint8_t*)heap_caps_aligned_alloc(16, frame_.len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (snap.data == nullptr) {
+            ESP_LOGE(TAG, "CaptureJpeg: no memory for a copy of the frame (%zu bytes)", frame_.len);
+            return false;
+        }
+        memcpy(snap.data, frame_.data, frame_.len);
+    }
+    // The encoder needs more stack than the web server's task has: run it in a thread, as Explain() does.
+    bool ok = false;
+    std::thread encoder([&]() {
+        ok = image_to_jpeg(snap.data, snap.len, snap.width ? snap.width : 320, snap.height ? snap.height : 240, snap.format, quality, out, out_len);
+    });
+    encoder.join();
+    heap_caps_free(snap.data);
+    if (!ok || *out == nullptr || *out_len == 0) {
+        if (*out != nullptr) {
+            heap_caps_free(*out);
+        }
+        *out = nullptr;
+        *out_len = 0;
+        return false;
+    }
+    return true;
+}
+
 bool EspVideo::Capture() {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (encoder_thread_.joinable()) {

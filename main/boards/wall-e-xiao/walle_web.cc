@@ -436,6 +436,36 @@ esp_err_t PostVolumeHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/photo: one picture from the camera as a JPEG (the page's Camera button). A POST, so that another web page cannot show it by pointing an
+// <img> at the robot (it could not read the answer of a POST either). The screen shows the picture for 2 s as for any photo; no shutter sound.
+esp_err_t SendPhotoError(httpd_req_t* req, const char* message) {  // IDF has no HTTPD_503 constant: set the status text ourselves
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, message, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t PostPhotoHandler(httpd_req_t* req) {
+    auto& board = WallEBoard::Get();
+    auto* camera = board.walle_camera();
+    if (camera == nullptr || !camera->Detected()) {
+        return SendPhotoError(req, "no camera found");
+    }
+    if (board.IsNapping()) {
+        return SendPhotoError(req, "Jarvis is napping: wake it first");
+    }
+    uint8_t* jpeg = nullptr;
+    size_t jpeg_len = 0;
+    if (!camera->CaptureJpeg(75, &jpeg, &jpeg_len)) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "the camera did not deliver a picture");
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const esp_err_t result = httpd_resp_send(req, reinterpret_cast<const char*>(jpeg), jpeg_len);
+    heap_caps_free(jpeg);
+    return result;
+}
+
 // POST /api/server  body {"server": "192.168.2.20" | "name.local" | "host:port" | "default"}.
 // Saves the voice server and reboots the robot ~1.5 s after the answer is out. From the page only
 // LAN addresses or "default" (cloud) are accepted - see walle_server.h for why.
@@ -517,6 +547,7 @@ void Start() {
         {.uri = "/api/power", .method = HTTP_POST, .handler = PostPowerHandler, .user_ctx = nullptr},
         {.uri = "/api/server", .method = HTTP_POST, .handler = PostServerHandler, .user_ctx = nullptr},
         {.uri = "/api/volume", .method = HTTP_POST, .handler = PostVolumeHandler, .user_ctx = nullptr},
+        {.uri = "/api/photo", .method = HTTP_POST, .handler = PostPhotoHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

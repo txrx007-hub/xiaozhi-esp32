@@ -18,6 +18,7 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 #include <esp_pm.h>
+#include <esp_system.h>
 #include <freertos/task.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
@@ -183,6 +184,23 @@ int CpuLoadPercent() {
     return last_value;
 }
 
+// Short, stable names (they are matched by the backend panel and the phone app).
+static const char* ResetReasonName(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON: return "power on";
+        case ESP_RST_SW: return "software restart";
+        case ESP_RST_PANIC: return "crash";
+        case ESP_RST_INT_WDT:
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_DEEPSLEEP: return "woke from deep sleep";
+        case ESP_RST_BROWNOUT: return "brownout (power dip)";
+        case ESP_RST_USB: return "USB reset";
+        case ESP_RST_EXT: return "reset button";
+        default: return "other";
+    }
+}
+
 esp_err_t GetStatusHandler(httpd_req_t* req) {
     auto& board = WallEBoard::Get();
     auto& wifi = WifiManager::GetInstance();
@@ -197,6 +215,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddNumberToObject(root, "rssi", wifi.GetRssi());
     cJSON_AddNumberToObject(root, "uptime_s", esp_timer_get_time() / 1000000);
+    cJSON_AddStringToObject(root, "reset_reason", ResetReasonName(esp_reset_reason()));  // why this run started (the backend's robot-health card shows it)
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());

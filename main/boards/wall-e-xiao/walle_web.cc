@@ -480,7 +480,7 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     return result;
 }
 
-// POST /api/server  body {"server": "192.168.2.20" | "name.local" | "host:port" | "default"}.
+// POST /api/server  body {"server": "192.168.1.20" | "name.local" | "host:port" | "default"}.
 // Saves the voice server and reboots the robot ~1.5 s after the answer is out. From the page only
 // LAN addresses or "default" (cloud) are accepted - see walle_server.h for why.
 esp_err_t PostServerHandler(httpd_req_t* req) {

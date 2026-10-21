@@ -2,6 +2,7 @@
 #include "linux/videodev2.h"
 
 #include "walle_web.h"
+#include "walle_net.h"
 
 #include <algorithm>
 #include <atomic>
@@ -445,6 +446,18 @@ esp_err_t PostVolumeHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// GET /api/net: what the robot has sent and received over Wi-Fi since it started (packets and bytes; 32 bit counters that wrap, t_ms = the robot's clock).
+// A few dozen bytes, so the backend can ask it three times a second; the reader works out the rates from two readings.
+esp_err_t GetNetHandler(httpd_req_t* req) {
+    const walle_net::Counters c = walle_net::Read();
+    char buf[128];
+    int n = snprintf(buf, sizeof(buf), "{\"tx_pkts\":%lu,\"rx_pkts\":%lu,\"tx_bytes\":%lu,\"rx_bytes\":%lu,\"t_ms\":%lu}", static_cast<unsigned long>(c.tx_pkts),
+                     static_cast<unsigned long>(c.rx_pkts), static_cast<unsigned long>(c.tx_bytes), static_cast<unsigned long>(c.rx_bytes), static_cast<unsigned long>(c.t_ms));
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, buf, n);
+}
+
 // POST /api/stop: stops what Jarvis is saying or playing (a song, a radio stream) at once: the same as pressing the button while it speaks. The landing page's Stop button.
 esp_err_t PostStopHandler(httpd_req_t* req) {
     Application::GetInstance().Schedule([]() {
@@ -545,12 +558,13 @@ esp_err_t PostResetHandler(httpd_req_t* req) {
 }  // namespace
 
 void Start() {
+    walle_net::Start();  // the packet counters begin as soon as Wi-Fi is up (and keep counting when this server restarts)
     if (s_server != nullptr) {
         return;
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_uri_handlers = 16;
+    config.max_uri_handlers = 20;
     config.lru_purge_enable = true;
     if (httpd_start(&s_server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start the LAN settings page");
@@ -572,6 +586,7 @@ void Start() {
         {.uri = "/api/volume", .method = HTTP_POST, .handler = PostVolumeHandler, .user_ctx = nullptr},
         {.uri = "/api/photo", .method = HTTP_POST, .handler = PostPhotoHandler, .user_ctx = nullptr},
         {.uri = "/api/stop", .method = HTTP_POST, .handler = PostStopHandler, .user_ctx = nullptr},
+        {.uri = "/api/net", .method = HTTP_GET, .handler = GetNetHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

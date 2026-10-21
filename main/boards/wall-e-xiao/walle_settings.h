@@ -12,7 +12,7 @@
 // for the quiet hours, 0-3 for log_level. Text settings (weather_city) are strings.
 class WalleSettings {
 public:
-    enum class Kind { kInt, kBool, kHundredths, kTimeOfDay, kLogLevel, kText, kVisualizerMode };
+    enum class Kind { kInt, kBool, kHundredths, kTimeOfDay, kLogLevel, kText, kVisualizerMode, kMusicIcon };
 
     struct Def {
         const char* key;

@@ -308,6 +308,11 @@ WalleAudioCodec* WallEBoard::walle_codec() {
         const int mode = settings.GetInt("visualizer_mode");
         c->SetSpectrumEnabled(mode != 0);
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
+        display_->SetMusicIcon(settings.GetInt("music_icon"));
+        // Music needs the spectrum for its Winamp bars even when the speaking visualizer is off.
+        display_->SetMusicHook([c](bool on) {
+            c->SetSpectrumEnabled(on || WalleSettings::GetInstance().GetInt("visualizer_mode") != 0);
+        });
         return c;
     }();
     return codec;
@@ -695,6 +700,8 @@ void WallEBoard::ApplySetting(const std::string& key) {
         const int mode = settings.GetInt("visualizer_mode");
         walle_codec()->SetSpectrumEnabled(mode != 0);
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
+    } else if (key == "music_icon") {
+        display_->SetMusicIcon(settings.GetInt("music_icon"));
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,
                                                   ESP_LOG_DEBUG};

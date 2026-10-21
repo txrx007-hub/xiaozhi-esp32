@@ -54,6 +54,7 @@ const char* KindName(WalleSettings::Kind kind) {
         case WalleSettings::Kind::kTimeOfDay: return "time";
         case WalleSettings::Kind::kLogLevel: return "enum";
         case WalleSettings::Kind::kVisualizerMode: return "enum";
+        case WalleSettings::Kind::kMusicIcon: return "enum";
         case WalleSettings::Kind::kText: return "text";
     }
     return "int";
@@ -114,6 +115,14 @@ cJSON* SettingToJson(const WalleSettings::Def& def) {
             cJSON* options = cJSON_AddArrayToObject(item, "options");
             for (const char* mode : walle_spectrum::kModeNames) {
                 cJSON_AddItemToArray(options, cJSON_CreateString(mode));
+            }
+            break;
+        }
+        case WalleSettings::Kind::kMusicIcon: {
+            cJSON_AddStringToObject(item, "value", settings.FormatCurrent(def).c_str());
+            cJSON* options = cJSON_AddArrayToObject(item, "options");
+            for (const char* icon : {"music icon 1", "music icon 2"}) {
+                cJSON_AddItemToArray(options, cJSON_CreateString(icon));
             }
             break;
         }

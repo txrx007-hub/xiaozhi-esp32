@@ -82,6 +82,18 @@ public:
         spectrum_source_ = std::move(source);
     }
     void SetVisualizerMode(walle_spectrum::Mode mode) { visualizer_mode_ = mode; }
+    // While music or radio plays (the server marks its "tts start"), the classic Winamp bars show whatever visualizer_mode is: the setting only picks
+    // the look for Jarvis's own voice.
+    // The same mark also swaps the eyes for a headphones picture (setting music_icon: 0 = music icon 1, 1 = music icon 2) while the speaking audio is music.
+    void SetMusicVisual(bool on) override {
+        music_visual_ = on;
+        if (music_hook_) {
+            music_hook_(on);
+        }
+    }
+    void SetMusicIcon(int icon) { music_icon_ = icon; }
+    // Called when the music mark changes, so the board can switch the microphone's spectrum analysis on even if the speaking visualizer is off.
+    void SetMusicHook(std::function<void(bool)> hook) { music_hook_ = std::move(hook); }
 
     static constexpr const char* kListeningEmotion = "relaxed";
 
@@ -92,6 +104,9 @@ private:
     void UpdateSpectrumBars();
     // The other speaking visualizers (scope, mouth, radial, vu, orb). kOff/kWinamp hide them all.
     void CreateVisuals();
+    void UpdateMusicScreen(bool want);  // eyes out, headphones picture in (and back)
+    bool EnsureMusicCanvas();
+    void DrawMusicIcon(int icon);
     void UpdateVisual(walle_spectrum::Mode mode);
     bool EnsureCanvasBuffer();
     void DrawRadial();
@@ -132,6 +147,18 @@ private:
     std::function<int()> input_rms_;
 
     std::atomic<walle_spectrum::Mode> visualizer_mode_{walle_spectrum::Mode::kOff};
+    std::atomic<bool> music_visual_{false};
+    std::atomic<int> music_icon_{0};
+    std::function<void(bool)> music_hook_;
+    lv_obj_t* music_bg_ = nullptr;
+    lv_obj_t* music_canvas_ = nullptr;
+    uint8_t* music_buf_ = nullptr;  // PSRAM, allocated the first time music plays
+    int music_icon_drawn_ = -1;
+    bool music_screen_shown_ = false;
+    bool eyes_hidden_by_music_ = false;
+    walle_spectrum::Mode EffectiveVisualMode() const {
+        return music_visual_.load() ? walle_spectrum::Mode::kWinamp : visualizer_mode_.load();
+    }
     std::function<walle_spectrum::Frame()> spectrum_source_;
     lv_obj_t* spectrum_root_ = nullptr;
     lv_obj_t* spectrum_bars_[walle_spectrum::kBands] = {};

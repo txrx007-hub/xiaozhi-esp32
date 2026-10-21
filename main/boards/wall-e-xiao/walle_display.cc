@@ -140,6 +140,58 @@ void DrawCircle(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32
     lv_draw_arc(layer, &arc);
 }
 
+// Music screen (the eyes are replaced by a headphones picture while music or radio plays). The picture is drawn here, shape by shape, into a 176 x 128 canvas:
+// two looks, "music icon 1" (one warm colour) and "music icon 2" (colour gradients).
+constexpr int kMusicW = 176;
+constexpr int kMusicH = 128;
+constexpr int kMusicTop = 28;        // below the status line
+constexpr int kMusicBgBottom = 200;  // black cover down to just above the Winamp strip's bottom / the subtitle bar
+constexpr uint32_t kMusicPeach = 0xf3d3b4;
+
+uint32_t Lerp(uint32_t a, uint32_t b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    auto ch = [&](int shift) {
+        const float ca = static_cast<float>((a >> shift) & 0xff);
+        const float cb = static_cast<float>((b >> shift) & 0xff);
+        return static_cast<uint32_t>(lroundf(ca + (cb - ca) * t)) & 0xff;
+    };
+    return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+void FillRect(lv_layer_t* layer, int x0, int y0, int x1, int y1, uint32_t color, int radius = 0) {
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = lv_color_hex(color);
+    d.radius = radius;
+    lv_area_t a = {x0, y0, x1, y1};
+    lv_draw_rect(layer, &d, &a);
+}
+
+// A rectangle filled row by row with a three-colour vertical gradient (top, middle, bottom); the end rows are rounded off by narrowing them.
+void FillGradient(lv_layer_t* layer, int x0, int y0, int x1, int y1, uint32_t top, uint32_t mid, uint32_t bottom, int round_px) {
+    const int h = y1 - y0 + 1;
+    for (int y = 0; y < h; ++y) {
+        const float t = h > 1 ? static_cast<float>(y) / (h - 1) : 0.0f;
+        const uint32_t c = t < 0.5f ? Lerp(top, mid, t * 2.0f) : Lerp(mid, bottom, (t - 0.5f) * 2.0f);
+        const int edge = y < round_px ? round_px - y : (y >= h - round_px ? y - (h - round_px) + 1 : 0);
+        FillRect(layer, x0 + edge / 2, y0 + y, x1 - edge / 2, y0 + y, c);
+    }
+}
+
+void DrawText(lv_layer_t* layer, const char* text, int x0, int y0, int x1, int y1, uint32_t color, lv_text_align_t align) {
+    lv_draw_label_dsc_t label;
+    lv_draw_label_dsc_init(&label);
+    label.text = text;
+    label.font = LV_FONT_DEFAULT;
+    label.color = lv_color_hex(color);
+    label.align = align;
+    label.letter_space = 2;
+    for (int dx = 0; dx <= 1; ++dx) {  // drawn twice, one pixel apart: a bolder letter than the small built-in font gives
+        lv_area_t area = {x0 + dx, y0, x1 + dx, y1};
+        lv_draw_label(layer, &label, &area);
+    }
+}
+
 }  // namespace
 
 WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
@@ -277,7 +329,7 @@ void WalleDisplay::UpdateSpectrumBars() {
     if (!spectrum_source_) {
         return;
     }
-    const bool rainbow = visualizer_mode_.load() == walle_spectrum::Mode::kRainbow;
+    const bool rainbow = EffectiveVisualMode() == walle_spectrum::Mode::kRainbow;
     // The spectrum strips are 50 px tall (the plain level ribbon is 26). They keep the same
     // baseline - just above the subtitle bar - so the taller strip grows upward into the lower
     // part of the eyes.
@@ -321,6 +373,7 @@ void WalleDisplay::UpdateRibbon() {
     if (ribbon_ == nullptr || spectrum_root_ == nullptr) {
         return;
     }
+    UpdateMusicScreen(music_visual_.load() && mode == Ribbon::kOutput && !blank_ && !clock_shown_);
     if (mode == Ribbon::kOff || blank_ || clock_shown_) {
         if (ribbon_visible_) {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
@@ -345,7 +398,7 @@ void WalleDisplay::UpdateRibbon() {
         theme != nullptr && lv_color_brightness(theme->background_color()) < 128;
     const lv_color_t color = lv_color_hex(dark_background ? 0x2ee6d6 : 0x1d9e75);
 
-    const walle_spectrum::Mode visual_mode = visualizer_mode_.load();
+    const walle_spectrum::Mode visual_mode = EffectiveVisualMode();
     if (mode == Ribbon::kOutput && visual_mode != walle_spectrum::Mode::kOff) {
         if (ribbon_visible_) {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
@@ -429,6 +482,119 @@ void WalleDisplay::CreateVisuals() {
     lv_obj_set_pos(viz_canvas_, (width_ - kCanvasSize) / 2, kCanvasTop);
     lv_obj_remove_flag(viz_canvas_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(viz_canvas_, LV_OBJ_FLAG_HIDDEN);
+}
+
+bool WalleDisplay::EnsureMusicCanvas() {
+    if (music_buf_ != nullptr) {
+        return true;
+    }
+    const size_t size = LV_CANVAS_BUF_SIZE(kMusicW, kMusicH, 16, LV_DRAW_BUF_STRIDE_ALIGN);
+    music_buf_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (music_buf_ == nullptr) {
+        ESP_LOGE(TAG, "No memory for the %u byte music picture", (unsigned)size);
+        return false;
+    }
+    music_bg_ = MakeBox(lv_layer_top(), 0, kMusicTop, width_, kMusicBgBottom - kMusicTop, 0x000000, 0);
+    music_canvas_ = lv_canvas_create(lv_layer_top());
+    lv_obj_set_pos(music_canvas_, (width_ - kMusicW) / 2, kMusicTop);
+    lv_canvas_set_buffer(music_canvas_, music_buf_, kMusicW, kMusicH, LV_COLOR_FORMAT_RGB565);
+    lv_obj_remove_flag(music_canvas_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(music_bg_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(music_canvas_, LV_OBJ_FLAG_HIDDEN);
+    // Behind the Winamp bars, which sit just below the picture and must stay visible.
+    lv_obj_move_background(music_canvas_);
+    lv_obj_move_background(music_bg_);
+    return true;
+}
+
+void WalleDisplay::UpdateMusicScreen(bool want) {
+    const int icon = music_icon_.load();
+    if (want == music_screen_shown_ && (!want || icon == music_icon_drawn_)) {
+        return;
+    }
+    if (want) {
+        if (!EnsureMusicCanvas()) {
+            return;
+        }
+        if (icon != music_icon_drawn_) {
+            DrawMusicIcon(icon);
+            music_icon_drawn_ = icon;
+        }
+        SetShown(music_bg_, true);
+        SetShown(music_canvas_, true);
+        if (emoji_box_ != nullptr && !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
+            eyes_hidden_by_music_ = true;
+        }
+        music_screen_shown_ = true;
+    } else {
+        SetShown(music_bg_, false);
+        SetShown(music_canvas_, false);
+        if (eyes_hidden_by_music_ && emoji_box_ != nullptr) {
+            lv_obj_remove_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
+        }
+        eyes_hidden_by_music_ = false;
+        music_screen_shown_ = false;
+    }
+}
+
+void WalleDisplay::DrawMusicIcon(int icon) {
+    lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(music_canvas_, &layer);
+    constexpr int cx = kMusicW / 2;
+    if (icon == 0) {
+        // Music icon 1: peach headphones around a dashed play button, "music player" underneath.
+        DrawCircle(&layer, cx, 56, 48, 10, kMusicPeach, 180, 360);        // the band
+        FillRect(&layer, 34, 50, 56, 98, kMusicPeach, 10);                // left cup
+        FillRect(&layer, 120, 50, 142, 98, kMusicPeach, 10);              // right cup
+        FillRect(&layer, 50, 60, 52, 90, 0x000000, 1);                    // the slit on the inner edge of each cup
+        FillRect(&layer, 124, 60, 126, 90, 0x000000, 1);
+        for (int k = 0; k < 12; ++k) {                                    // the dashed ring, open at the top and the bottom
+            DrawCircle(&layer, cx, 76, 27, 3, kMusicPeach, k * 30 + 7, k * 30 + 23);
+        }
+        DrawCircle(&layer, cx, 49, 3, 3, kMusicPeach);
+        DrawCircle(&layer, cx, 103, 3, 3, kMusicPeach);
+        lv_draw_triangle_dsc_t tri;
+        lv_draw_triangle_dsc_init(&tri);
+        tri.color = lv_color_hex(kMusicPeach);
+        tri.p[0] = {cx - 6, 64};
+        tri.p[1] = {cx - 6, 88};
+        tri.p[2] = {cx + 12, 76};
+        lv_draw_triangle(&layer, &tri);
+        DrawText(&layer, "music player", 0, 106, kMusicW - 1, 124, kMusicPeach, LV_TEXT_ALIGN_CENTER);
+    } else {
+        // Music icon 2: a ring that runs from orange through pink to violet, headphones with orange cushions, a play button, "MUSIC PLAYER".
+        constexpr uint32_t kStops[4] = {0xe9692f, 0xe6609a, 0xd264b8, 0xa466c8};  // left, top, right, bottom
+        for (int k = 0; k < 36; ++k) {
+            const int a = k * 10;  // 0 = right, 90 = bottom, 180 = left, 270 = top
+            const float pos = static_cast<float>((a + 5 + 180) % 360) / 90.0f;  // 0 at the left, 1 at the top, 2 at the right, 3 at the bottom
+            const int i0 = static_cast<int>(pos) % 4;
+            DrawCircle(&layer, cx, 53, 51, 5, Lerp(kStops[i0], kStops[(i0 + 1) % 4], pos - std::floor(pos)), a, (a + 11) % 360);
+        }
+        DrawCircle(&layer, cx, 46, 37, 5, 0x3c3c4e, 180, 360);            // the band
+        DrawCircle(&layer, cx, 46, 37, 2, 0xf29a3a, 200, 270);            // its coloured edge
+        DrawCircle(&layer, cx, 46, 37, 2, 0xe6609a, 270, 340);
+        // left side: lilac outer pad, dark cup, orange cushion; the right side mirrors it
+        FillRect(&layer, 53, 52, 57, 74, 0x8e7aa8, 2);
+        FillRect(&layer, 57, 46, 65, 80, 0x2a2a3a, 2);
+        FillGradient(&layer, 65, 44, 73, 82, 0xf9a833, 0xf0582a, 0xb02a5a, 4);
+        FillRect(&layer, 119, 52, 123, 74, 0x8e7aa8, 2);
+        FillRect(&layer, 111, 46, 119, 80, 0x2a2a3a, 2);
+        FillGradient(&layer, 103, 44, 111, 82, 0xf9a833, 0xf0582a, 0xb02a5a, 4);
+        DrawCircle(&layer, cx, 63, 14, 14, 0x23232f);                      // the play button
+        DrawCircle(&layer, cx, 63, 14, 1, 0x7a62a8, 200, 340);
+        lv_draw_triangle_dsc_t tri;
+        lv_draw_triangle_dsc_init(&tri);
+        tri.color = lv_color_hex(0xf0582a);
+        tri.p[0] = {cx - 5, 55};
+        tri.p[1] = {cx - 5, 71};
+        tri.p[2] = {cx + 8, 63};
+        lv_draw_triangle(&layer, &tri);
+        DrawText(&layer, "MUSIC", 0, 108, cx - 4, 124, 0x56b8d8, LV_TEXT_ALIGN_RIGHT);
+        DrawText(&layer, "PLAYER", cx + 4, 108, kMusicW - 1, 124, 0xe0607a, LV_TEXT_ALIGN_LEFT);
+    }
+    lv_canvas_finish_layer(music_canvas_, &layer);
 }
 
 bool WalleDisplay::EnsureCanvasBuffer() {

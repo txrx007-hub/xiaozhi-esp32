@@ -19,6 +19,9 @@ constexpr const char* kLogLevels[] = {"error", "warn", "info", "debug"};
 // self.display.set_visualizer; the names live in walle_spectrum.h next to the Mode enum.
 constexpr const char* const* kVisualizerModes = walle_spectrum::kModeNames;
 constexpr int kVisualizerModeCount = walle_spectrum::kModeCount;
+// The picture that replaces the eyes while music plays.
+constexpr const char* kMusicIcons[] = {"music icon 1", "music icon 2"};
+constexpr int kMusicIconCount = 2;
 
 std::string Trim(const std::string& text) {
     size_t start = 0;
@@ -74,6 +77,8 @@ WalleSettings::WalleSettings() {
         {"weather_city", Kind::kText, 0, 40, 0, "city for the weather, for example Amsterdam, or off"},
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
          "what the screen shows while Jarvis speaks: off, winamp, rainbow, scope, radial, vu, mouth or orb"},
+        {"music_icon", Kind::kMusicIcon, 0, kMusicIconCount - 1, 0,
+         "the picture that replaces the eyes while music plays: music icon 1 or music icon 2"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
 
@@ -156,6 +161,8 @@ std::string WalleSettings::Format(const Def& def, int value) const {
                                               : (value >= kVisualizerModeCount
                                                      ? kVisualizerModeCount - 1
                                                      : value)];
+        case Kind::kMusicIcon:
+            return kMusicIcons[value < 0 ? 0 : (value >= kMusicIconCount ? kMusicIconCount - 1 : value)];
         case Kind::kBool:
             return value ? "1" : "0";
         default:
@@ -181,6 +188,8 @@ std::string WalleSettings::Range(const Def& def) const {
             return "error, warn, info, debug";
         case Kind::kVisualizerMode:
             return "off, winamp, scope, radial, vu, mouth, orb, rainbow";
+        case Kind::kMusicIcon:
+            return "music icon 1, music icon 2";
         case Kind::kBool:
             return "0 or 1";
         case Kind::kText:
@@ -278,6 +287,14 @@ std::expected<int, std::string> WalleSettings::Parse(const Def& def,
                 }
             }
             return std::unexpected("visualizer_mode must be off, winamp, scope, radial, vu, mouth, orb or rainbow.");
+
+        case Kind::kMusicIcon:
+            for (int i = 0; i < kMusicIconCount; ++i) {
+                if (text == kMusicIcons[i] || text == std::to_string(i + 1) || text == "icon " + std::to_string(i + 1)) {
+                    return i;
+                }
+            }
+            return std::unexpected("music_icon must be music icon 1 or music icon 2.");
 
         default:
             if (!ParseInt(text, value)) {

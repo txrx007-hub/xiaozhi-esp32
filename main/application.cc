@@ -622,6 +622,9 @@ void Application::InitializeProtocol() {
                 return;
             }
             if (strcmp(state->valuestring, "start") == 0) {
+                // local: the server marks music and radio with "visual":"winamp"; any other speech clears it again
+                auto visual = cJSON_GetObjectItem(root, "visual");
+                display->SetMusicVisual(cJSON_IsString(visual) && strcmp(visual->valuestring, "winamp") == 0);
                 Schedule([this]() {
                     aborted_ = false;
                     SetDeviceState(kDeviceStateSpeaking);

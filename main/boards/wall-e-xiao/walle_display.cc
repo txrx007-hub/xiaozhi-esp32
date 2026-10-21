@@ -484,6 +484,17 @@ void WalleDisplay::CreateVisuals() {
     lv_obj_add_flag(viz_canvas_, LV_OBJ_FLAG_HIDDEN);
 }
 
+void WalleDisplay::SetStatus(const char* status) {
+    SpiLcdDisplay::SetStatus(status);  // keeps the text current, so it is right when the music screen closes
+    if (music_screen_shown_.load()) {
+        DisplayLockGuard lock(this);
+        if (status_label_ != nullptr) {
+            lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+            status_hidden_by_music_ = true;
+        }
+    }
+}
+
 bool WalleDisplay::EnsureMusicCanvas() {
     if (music_buf_ != nullptr) {
         return true;
@@ -526,6 +537,10 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
             lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
             eyes_hidden_by_music_ = true;
         }
+        if (status_label_ != nullptr && !lv_obj_has_flag(status_label_, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+            status_hidden_by_music_ = true;
+        }
         music_screen_shown_ = true;
     } else {
         SetShown(music_bg_, false);
@@ -534,6 +549,11 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
             lv_obj_remove_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
         }
         eyes_hidden_by_music_ = false;
+        if (status_hidden_by_music_ && status_label_ != nullptr &&
+            (notification_label_ == nullptr || lv_obj_has_flag(notification_label_, LV_OBJ_FLAG_HIDDEN))) {
+            lv_obj_remove_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        status_hidden_by_music_ = false;
         music_screen_shown_ = false;
     }
 }

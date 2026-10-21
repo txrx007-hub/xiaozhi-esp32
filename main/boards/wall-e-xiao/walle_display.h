@@ -92,6 +92,8 @@ public:
         }
     }
     void SetMusicIcon(int icon) { music_icon_ = icon; }
+    // While the music screen shows, the status line at the top ("Speaking") stays blank.
+    void SetStatus(const char* status) override;
     // Called when the music mark changes, so the board can switch the microphone's spectrum analysis on even if the speaking visualizer is off.
     void SetMusicHook(std::function<void(bool)> hook) { music_hook_ = std::move(hook); }
 
@@ -154,8 +156,9 @@ private:
     lv_obj_t* music_canvas_ = nullptr;
     uint8_t* music_buf_ = nullptr;  // PSRAM, allocated the first time music plays
     int music_icon_drawn_ = -1;
-    bool music_screen_shown_ = false;
+    std::atomic<bool> music_screen_shown_{false};
     bool eyes_hidden_by_music_ = false;
+    bool status_hidden_by_music_ = false;
     walle_spectrum::Mode EffectiveVisualMode() const {
         return music_visual_.load() ? walle_spectrum::Mode::kWinamp : visualizer_mode_.load();
     }

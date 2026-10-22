@@ -229,6 +229,7 @@ void WallEBoard::InitializeCamera() {
     camera_ = new WalleCamera(video_config);
     camera_->SetVFlip(CAMERA_VFLIP);
     camera_->SetHMirror(CAMERA_HMIRROR);
+    camera_->SetAeLevel(WalleSettings::GetInstance().GetInt("camera_brightness"));
 }
 
 void WallEBoard::InitializeButtons() {
@@ -702,6 +703,10 @@ void WallEBoard::ApplySetting(const std::string& key) {
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
     } else if (key == "music_icon") {
         display_->SetMusicIcon(settings.GetInt("music_icon"));
+    } else if (key == "camera_brightness") {
+        if (camera_ != nullptr) {
+            camera_->SetAeLevel(settings.GetInt("camera_brightness"));
+        }
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,
                                                   ESP_LOG_DEBUG};

@@ -1006,6 +1006,24 @@ bool EspVideo::Capture() {
     return true;
 }
 
+bool EspVideo::SetAeLevel(int level) {
+    if (video_fd_ < 0)
+        return false;
+    struct v4l2_ext_controls ctrls = {};
+    struct v4l2_ext_control ctrl = {};
+    ctrl.id = V4L2_CID_CAMERA_AE_LEVEL;
+    ctrl.value = level;
+    ctrls.ctrl_class = V4L2_CID_USER_CLASS;
+    ctrls.count = 1;
+    ctrls.controls = &ctrl;
+    if (ioctl(video_fd_, VIDIOC_S_EXT_CTRLS, &ctrls) != 0) {
+        ESP_LOGW(TAG, "set AE level %d failed (errno %d)", level, errno);
+        return false;
+    }
+    ESP_LOGI(TAG, "AE level set to %d", level);
+    return true;
+}
+
 bool EspVideo::SetHMirror(bool enabled) {
     if (video_fd_ < 0)
         return false;
@@ -1087,7 +1105,7 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         uint16_t h = frame_.height ? frame_.height : 240;
         v4l2_pix_fmt_t enc_fmt = frame_.format;
         bool ok = image_to_jpeg_cb(
-            frame_.data, frame_.len, w, h, enc_fmt, 80,
+            frame_.data, frame_.len, w, h, enc_fmt, 90,
             [](void* arg, size_t index, const void* data, size_t len) -> size_t {
                 auto jpeg_queue = static_cast<QueueHandle_t>(arg);
                 JpegChunk chunk = {.data = nullptr, .len = len};

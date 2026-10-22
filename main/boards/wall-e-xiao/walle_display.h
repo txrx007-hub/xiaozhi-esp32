@@ -28,8 +28,8 @@ public:
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
     // next one arrives.
     void SetChatMessage(const char* role, const char* content) override;
-    // A single take_photo/diagnostics capture shows the real picture, fit into the bottom half
-    // of the screen, for 2 s (upstream default: full-ish size, centered, 5 s). look_around's
+    // A single take_photo/diagnostics capture shows the real picture, fit into the screen and
+    // centred, for 3.5 s (upstream default: 5 s). look_around's
     // per-frame shots stay suppressed via SuppressNextPreview(), unaffected by this.
     void SetPreviewImage(std::unique_ptr<LvglImage> image) override;
 

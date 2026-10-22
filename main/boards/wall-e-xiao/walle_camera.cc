@@ -63,8 +63,8 @@ void WalleCamera::EnableAutoWhiteBalance() {
 }
 
 bool WalleCamera::Capture() {
-    // WALL-E: a single take_photo/diagnostics shot shows the real picture (bottom-half preview,
-    // 2 s, see EspVideo::Capture -> WalleDisplay::SetPreviewImage), no screen effect beforehand -
+    // WALL-E: a single take_photo/diagnostics shot shows the real picture (centred preview,
+    // 3.5 s, see EspVideo::Capture -> WalleDisplay::SetPreviewImage), no screen effect beforehand -
     // just the shutter sound (if enabled) and the picture itself. Only CollageAdd()'s own
     // per-frame shots for look_around stay suppressed.
     if (WalleSettings::GetInstance().GetBool("shutter_sound")) {

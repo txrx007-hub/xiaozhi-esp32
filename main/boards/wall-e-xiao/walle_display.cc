@@ -900,10 +900,10 @@ void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     auto img_dsc = preview_image_cached_->image_dsc();
     lv_image_set_src(preview_image_, img_dsc);
     if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
-        // Fit within the bottom half (full width, half height) preserving aspect ratio: scale
-        // by whichever axis is tighter, same technique upstream uses, just a smaller target box.
+        // Fit within the whole screen preserving aspect ratio (a 4:3 photo becomes 240x180 on the
+        // 240x240 screen), centred: scale by whichever axis is tighter, same technique upstream uses.
         const int box_w = width_;
-        const int box_h = height_ / 2;
+        const int box_h = height_;
         const int zoom_w = 256 * box_w / img_dsc->header.w;
         const int zoom_h = 256 * box_h / img_dsc->header.h;
         lv_image_set_scale(preview_image_, std::min(zoom_w, zoom_h));
@@ -913,9 +913,9 @@ void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     }
     lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_align(preview_image_, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(preview_image_, LV_ALIGN_CENTER, 0, 0);
     esp_timer_stop(preview_timer_);
-    esp_timer_start_once(preview_timer_, 2000 * 1000);  // 2 s, not upstream's 5 s
+    esp_timer_start_once(preview_timer_, 3500 * 1000);  // 3.5 s (upstream: 5 s)
 }
 
 void WalleDisplay::SetBlank(bool blank) {

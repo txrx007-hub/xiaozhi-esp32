@@ -70,6 +70,8 @@ WalleSettings::WalleSettings() {
         {"mic_gain_db", Kind::kInt, 0, 24, 18, "software microphone gain in dB"},
         {"wake_threshold", Kind::kHundredths, 50, 95, 52, "wake word threshold, lower wakes more easily"},
         {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},
+        {"camera_brightness", Kind::kInt, -5, 5, 2,
+         "camera exposure target: raise it if photos come out dark, lower it if bright spots wash out (0 = sensor default)"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},
         {"quiet_start", Kind::kTimeOfDay, -1, 1439, -1, "night mode start, HH:MM or off"},
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},

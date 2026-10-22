@@ -82,7 +82,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.display.set_visualizer` | "switch the screen effect to radial" (mode: off, winamp, rainbow, scope, radial, vu, mouth or orb; setting `visualizer_mode`) |
 | `self.display.show_screensaver` | "turn on screensaver mode" - shows the idle clock right away; leaves by itself on the next wake word |
 | `self.diagnostics.run_check` | "check everything", "run a diagnostic on the camera" (the check list is in the tool's own description) |
-| upstream | volume, take photo (silent, no screen effect - see camera bottom-half preview below), device status, theme |
+| upstream | volume, take photo (silent, no screen effect - see camera preview below), device status, theme |
 
 ## Screen
 
@@ -198,7 +198,7 @@ holds the one validation routine used by both the USB console and the settings p
 
 motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / motor_b_invert /
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
-speaking) · shutter_sound 1 · wake_chirp 1 · quiet_start /
+speaking) · shutter_sound 1 · camera_brightness 2 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
 visualizer_mode off · log_level warn.
 
@@ -253,7 +253,7 @@ visualizer_mode off · log_level warn.
   eyes on "surprised" (a random color) while capturing; removed because a slow or stuck capture
   left the eyes frozen on that color with nothing on screen explaining why, which read as a worse
   hang than a plain unresponsive screen. The shutter sound (if enabled) still plays, and the real
-  picture still shows on the bottom half for 2 s either way (`EspVideo::Capture()` -
+  picture still shows centred in the screen for 3.5 s either way (`EspVideo::Capture()` -
   `WalleDisplay::SetPreviewImage()`, unrelated to the eyes). The capture itself really could hang
   forever - see `esp_video.cc`'s `VIDIOC_S_DQBUF_TIMEOUT` below - so it wasn't just the eyes.
 - Camera color: pictures used to have a uniform magenta/purple cast. Root cause (measured, build

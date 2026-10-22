@@ -89,6 +89,7 @@ private:
     uint32_t win_count_ = 0;
     uint32_t win_clipped_ = 0;
     int64_t win_start_us_ = 0;
+    int64_t first_read_us_ = 0;   // the microphone clicks when it starts: the first seconds are left out of the minute figures
     bool have_minute_ = false;
     MicMinute last_minute_ = {-96.0f, -96.0f, 0, 0};
     uint64_t clipped_total_ = 0;

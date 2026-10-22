@@ -98,12 +98,18 @@ int WalleAudioCodec::Read(int16_t* dest, int samples) {
     sum_squares_ += sum_squares;
     count_ += n;
     clipped_ += clipped;
+    const int64_t now = esp_timer_get_time();
+    if (first_read_us_ == 0) {
+        first_read_us_ = now;
+    }
+    if (now - first_read_us_ < 3LL * 1000 * 1000) {
+        return n;   // the start-up click of the PDM microphone (a few full-scale samples) is not a loud room
+    }
     win_peak_ = std::max(win_peak_, peak);
     win_sum_squares_ += sum_squares;
     win_count_ += n;
     win_clipped_ += clipped;
     clipped_total_ += clipped;
-    const int64_t now = esp_timer_get_time();
     if (win_start_us_ == 0) {
         win_start_us_ = now;
     } else if (now - win_start_us_ >= 60LL * 1000 * 1000) {

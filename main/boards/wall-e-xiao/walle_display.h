@@ -38,7 +38,7 @@ public:
     const std::string& auto_emotion() const { return auto_emotion_; }
 
     // The next camera preview is dropped (the surprised face is the photo cue).
-    void SuppressNextPreview() { suppress_preview_ = true; }
+    void SuppressNextPreview(bool on = true) { suppress_preview_ = on; }
 
     // Screen redraws per second (counts LVGL render cycles that actually drew something), averaged
     // over the time since the previous call. Static screens read 0.

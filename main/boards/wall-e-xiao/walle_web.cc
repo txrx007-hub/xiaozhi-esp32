@@ -473,11 +473,46 @@ esp_err_t PostStopHandler(httpd_req_t* req) {
 }
 
 // POST /api/photo: one picture from the camera as a JPEG (the page's Camera button). A POST, so that another web page cannot show it by pointing an
-// <img> at the robot (it could not read the answer of a POST either). The screen shows the picture for 2 s as for any photo; no shutter sound.
+// <img> at the robot (it could not read the answer of a POST either). The screen shows the picture for 3.5 s as for any photo (not for ?live=1); no shutter sound.
 esp_err_t SendPhotoError(httpd_req_t* req, const char* message) {  // IDF has no HTTPD_503 constant: set the status text ourselves
     httpd_resp_set_status(req, "503 Service Unavailable");
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_send(req, message, HTTPD_RESP_USE_STRLEN);
+}
+
+// The picture is taken in a task of its own (httpd's async API): the web server handles one request at a time, and a capture takes one to two seconds, during
+// which the page's drive keep-alive (/api/drive every ~200 ms, the wheels stop 500 ms after the last one) would not get through and the robot would stutter.
+// POST /api/photo?live=1 is the page's live view: smaller JPEG, and no preview on the robot's own screen.
+struct PhotoJob {
+    httpd_req_t* req;
+    bool live;
+};
+std::atomic<bool> s_photo_busy{false};
+
+void PhotoTask(void* arg) {
+    std::unique_ptr<PhotoJob> job(static_cast<PhotoJob*>(arg));
+    auto& board = WallEBoard::Get();
+    auto* camera = board.walle_camera();
+    uint8_t* jpeg = nullptr;
+    size_t jpeg_len = 0;
+    if (job->live) {
+        board.walle_display()->SuppressNextPreview();  // no picture over the robot's face for every frame
+    }
+    const bool ok = camera != nullptr && camera->CaptureJpeg(job->live ? 55 : 75, &jpeg, &jpeg_len);
+    if (job->live) {
+        board.walle_display()->SuppressNextPreview(false);  // a failed capture must not swallow the next real preview
+    }
+    if (!ok) {
+        httpd_resp_send_err(job->req, HTTPD_500_INTERNAL_SERVER_ERROR, "the camera did not deliver a picture");
+    } else {
+        httpd_resp_set_type(job->req, "image/jpeg");
+        httpd_resp_set_hdr(job->req, "Cache-Control", "no-store");
+        httpd_resp_send(job->req, reinterpret_cast<const char*>(jpeg), jpeg_len);
+        heap_caps_free(jpeg);
+    }
+    httpd_req_async_handler_complete(job->req);
+    s_photo_busy = false;
+    vTaskDelete(nullptr);
 }
 
 esp_err_t PostPhotoHandler(httpd_req_t* req) {
@@ -489,17 +524,29 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     if (board.IsNapping()) {
         return SendPhotoError(req, "Jarvis is napping: wake it first");
     }
-    uint8_t* jpeg = nullptr;
-    size_t jpeg_len = 0;
-    if (!camera->CaptureJpeg(75, &jpeg, &jpeg_len)) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "the camera did not deliver a picture");
-        return ESP_FAIL;
+    bool live = false;
+    char query[32] = {};
+    char value[8] = {};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK && httpd_query_key_value(query, "live", value, sizeof(value)) == ESP_OK) {
+        live = atoi(value) == 1;
     }
-    httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    const esp_err_t result = httpd_resp_send(req, reinterpret_cast<const char*>(jpeg), jpeg_len);
-    heap_caps_free(jpeg);
-    return result;
+    bool expected = false;
+    if (!s_photo_busy.compare_exchange_strong(expected, true)) {
+        return SendPhotoError(req, "the camera is busy with another picture");
+    }
+    httpd_req_t* async_req = nullptr;
+    if (httpd_req_async_handler_begin(req, &async_req) != ESP_OK) {
+        s_photo_busy = false;
+        return SendPhotoError(req, "cannot take the picture now");
+    }
+    auto* job = new PhotoJob{async_req, live};
+    if (xTaskCreate(PhotoTask, "photo", 6144, job, 4, nullptr) != pdPASS) {
+        delete job;
+        SendPhotoError(async_req, "not enough memory for a picture");
+        httpd_req_async_handler_complete(async_req);
+        s_photo_busy = false;
+    }
+    return ESP_OK;
 }
 
 // POST /api/server  body {"server": "192.168.1.20" | "name.local" | "host:port" | "default"}.

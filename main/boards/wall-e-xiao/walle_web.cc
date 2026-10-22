@@ -231,12 +231,12 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "wifi_disconnects", walle_health::WifiDisconnects());   // since boot, and why the last one happened
     cJSON_AddNumberToObject(root, "wifi_last_reason", walle_health::LastDisconnectReason());
     if (const float temp = walle_health::ChipTempC(); !std::isnan(temp)) {
-        cJSON_AddNumberToObject(root, "chip_temp_c", std::round(temp * 10.0f) / 10.0f);   // the die, not the room
+        cJSON_AddNumberToObject(root, "chip_temp_c", std::round(static_cast<double>(temp) * 10.0) / 10.0);   // the die, not the room
     }
     if (auto* mic = board.walle_codec(); mic != nullptr) {   // the microphone over the last minute: peak level and samples at full scale (clipping)
         const auto m = mic->mic_minute();
-        cJSON_AddNumberToObject(root, "mic_peak_dbfs", std::round(m.peak_dbfs * 10.0f) / 10.0f);
-        cJSON_AddNumberToObject(root, "mic_rms_dbfs", std::round(m.rms_dbfs * 10.0f) / 10.0f);
+        cJSON_AddNumberToObject(root, "mic_peak_dbfs", std::round(static_cast<double>(m.peak_dbfs) * 10.0) / 10.0);
+        cJSON_AddNumberToObject(root, "mic_rms_dbfs", std::round(static_cast<double>(m.rms_dbfs) * 10.0) / 10.0);
         cJSON_AddNumberToObject(root, "mic_clipped", m.clipped);
         cJSON_AddNumberToObject(root, "mic_clipped_total", static_cast<double>(m.clipped_total));
     }

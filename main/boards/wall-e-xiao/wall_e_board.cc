@@ -18,6 +18,7 @@
 
 #include "application.h"
 #include "config.h"
+#include "walle_health.h"
 #include "walle_console.h"
 #include "walle_mcp_tools.h"
 #include "walle_server.h"
@@ -78,6 +79,7 @@ WallEBoard::WallEBoard() : boot_button_(BOOT_BUTTON_GPIO) {
     InitializeSpi();
     InitializeDisplay();
     InitializeCamera();
+    walle_health::Init();   // chip temperature and Wi-Fi disconnect counter for /api/status
     InitializeButtons();
 
     ApplyWakeThreshold(false);  // AudioService keeps it until its engine exists

@@ -17,6 +17,14 @@ public:
         int clipped;
         int samples;
     };
+    // The microphone over the last full minute (post-gain, what the wake word engine and the server hear), for /api/status.
+    // Kept apart from TakeLevel(), which the console and the diagnostics reset whenever they read it.
+    struct MicMinute {
+        float peak_dbfs;
+        float rms_dbfs;
+        uint32_t clipped;         // samples that hit full scale in that minute
+        uint64_t clipped_total;   // since boot
+    };
 
     WalleAudioCodec(int input_sample_rate, int output_sample_rate, gpio_num_t spk_bclk,
                     gpio_num_t spk_ws, gpio_num_t spk_dout, gpio_num_t mic_clk,
@@ -38,6 +46,8 @@ public:
 
     // Level since the previous call (post-gain, i.e. what the wake word engine hears).
     Level TakeLevel();
+    // The last full minute (or the minute so far right after boot); reading it resets nothing.
+    MicMinute mic_minute();
 
     // RMS (0-32767) of the latest chunk, for the level bars under the face.
     int input_rms() const { return input_rms_.load(); }
@@ -73,6 +83,15 @@ private:
     uint64_t sum_squares_ = 0;
     uint32_t count_ = 0;
     uint32_t clipped_ = 0;
+    // one-minute window for mic_minute(), under level_mutex_ too
+    int32_t win_peak_ = 0;
+    uint64_t win_sum_squares_ = 0;
+    uint32_t win_count_ = 0;
+    uint32_t win_clipped_ = 0;
+    int64_t win_start_us_ = 0;
+    bool have_minute_ = false;
+    MicMinute last_minute_ = {-96.0f, -96.0f, 0, 0};
+    uint64_t clipped_total_ = 0;
 
     // Spectrum analysis state: touched only from Write(), which always runs on the same audio
     // task, so none of this (other than the published spectrum_ below) needs its own lock.

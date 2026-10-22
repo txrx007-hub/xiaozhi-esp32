@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
@@ -30,6 +31,7 @@
 #include "system_info.h"
 #include "wall_e_board.h"
 #include "walle_camera.h"
+#include "walle_health.h"
 #include "walle_server.h"
 #include "walle_settings.h"
 #include "wifi_manager.h"
@@ -226,6 +228,18 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "rssi", wifi.GetRssi());
     cJSON_AddNumberToObject(root, "uptime_s", esp_timer_get_time() / 1000000);
     cJSON_AddStringToObject(root, "reset_reason", ResetReasonName(esp_reset_reason()));  // why this run started (the backend's robot-health card shows it)
+    cJSON_AddNumberToObject(root, "wifi_disconnects", walle_health::WifiDisconnects());   // since boot, and why the last one happened
+    cJSON_AddNumberToObject(root, "wifi_last_reason", walle_health::LastDisconnectReason());
+    if (const float temp = walle_health::ChipTempC(); !std::isnan(temp)) {
+        cJSON_AddNumberToObject(root, "chip_temp_c", std::round(temp * 10.0f) / 10.0f);   // the die, not the room
+    }
+    if (auto* mic = board.walle_codec(); mic != nullptr) {   // the microphone over the last minute: peak level and samples at full scale (clipping)
+        const auto m = mic->mic_minute();
+        cJSON_AddNumberToObject(root, "mic_peak_dbfs", std::round(m.peak_dbfs * 10.0f) / 10.0f);
+        cJSON_AddNumberToObject(root, "mic_rms_dbfs", std::round(m.rms_dbfs * 10.0f) / 10.0f);
+        cJSON_AddNumberToObject(root, "mic_clipped", m.clipped);
+        cJSON_AddNumberToObject(root, "mic_clipped_total", static_cast<double>(m.clipped_total));
+    }
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());

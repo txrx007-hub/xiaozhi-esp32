@@ -9,6 +9,7 @@
 #include <dsps_wind_hann.h>
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 
 #include "settings.h"
 
@@ -97,7 +98,39 @@ int WalleAudioCodec::Read(int16_t* dest, int samples) {
     sum_squares_ += sum_squares;
     count_ += n;
     clipped_ += clipped;
+    win_peak_ = std::max(win_peak_, peak);
+    win_sum_squares_ += sum_squares;
+    win_count_ += n;
+    win_clipped_ += clipped;
+    clipped_total_ += clipped;
+    const int64_t now = esp_timer_get_time();
+    if (win_start_us_ == 0) {
+        win_start_us_ = now;
+    } else if (now - win_start_us_ >= 60LL * 1000 * 1000) {
+        last_minute_ = {win_peak_ > 0 ? 20.0f * std::log10(win_peak_ / 32768.0f) : -96.0f,
+                        win_count_ > 0 ? static_cast<float>(20.0 * std::log10(std::max(0.5, std::sqrt(static_cast<double>(win_sum_squares_) / win_count_)) / 32768.0)) : -96.0f,
+                        win_clipped_, clipped_total_};
+        have_minute_ = true;
+        win_peak_ = 0;
+        win_sum_squares_ = 0;
+        win_count_ = 0;
+        win_clipped_ = 0;
+        win_start_us_ = now;
+    }
     return n;
+}
+
+WalleAudioCodec::MicMinute WalleAudioCodec::mic_minute() {
+    std::lock_guard<std::mutex> lock(level_mutex_);
+    if (have_minute_) {
+        MicMinute m = last_minute_;
+        m.clipped_total = clipped_total_;
+        return m;
+    }
+    // the first minute after boot: what there is so far
+    return {win_peak_ > 0 ? 20.0f * std::log10(win_peak_ / 32768.0f) : -96.0f,
+            win_count_ > 0 ? static_cast<float>(20.0 * std::log10(std::max(0.5, std::sqrt(static_cast<double>(win_sum_squares_) / win_count_)) / 32768.0)) : -96.0f,
+            win_clipped_, clipped_total_};
 }
 
 int WalleAudioCodec::Write(const int16_t* data, int samples) {

@@ -228,6 +228,9 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "rssi", wifi.GetRssi());
     cJSON_AddNumberToObject(root, "uptime_s", esp_timer_get_time() / 1000000);
     cJSON_AddStringToObject(root, "reset_reason", ResetReasonName(esp_reset_reason()));  // why this run started (the backend's robot-health card shows it)
+    if (auto* codec = board.walle_codec(); codec != nullptr) {
+        cJSON_AddBoolToObject(root, "muted", codec->mic_muted());   // the Mute button of the page and the app
+    }
     cJSON_AddNumberToObject(root, "wifi_disconnects", walle_health::WifiDisconnects());   // since boot, and why the last one happened
     cJSON_AddNumberToObject(root, "wifi_last_reason", walle_health::LastDisconnectReason());
     if (const float temp = walle_health::ChipTempC(); !std::isnan(temp)) {
@@ -406,6 +409,15 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         Application::GetInstance().Schedule([]() { WallEBoard::Get().ExitNap(); });
         cJSON_AddBoolToObject(out, "ok", true);
         cJSON_AddStringToObject(out, "message", "Waking up.");
+    } else if (strcmp(action, "mute") == 0 || strcmp(action, "unmute") == 0) {
+        const bool on = action[0] == 'm';
+        Application::GetInstance().Schedule([on]() {
+            if (auto* c = WallEBoard::Get().walle_codec(); c != nullptr) {
+                c->SetMicMuted(on);
+            }
+        });
+        cJSON_AddBoolToObject(out, "ok", true);
+        cJSON_AddStringToObject(out, "message", on ? "Muted: the microphone is off until you unmute." : "Unmuted: listening again.");
     } else if (strcmp(action, "deepsleep") == 0) {
         const int minutes = atoi(minutes_param);
         if (minutes < 0 || minutes > 1440) {
@@ -425,7 +437,7 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         cJSON_AddStringToObject(out, "message", minutes > 0 ? "Deep sleep in 2 s." : "Deep sleep in 2 s, until the BOOT button.");
     } else {
         cJSON_Delete(out);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake or deepsleep");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute or unmute");
         return ESP_FAIL;
     }
     return SendJson(req, out);

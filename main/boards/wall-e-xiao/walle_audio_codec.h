@@ -36,6 +36,8 @@ public:
 
     void SetMicGainDb(int db);
     int mic_gain_db() const { return gain_db_.load(); }
+    // Mic mute: the microphone reads silence (the wake word and the server hear nothing). Lasts until unmuted; a restart or power-off unmutes
+    // (nothing is saved). The speaker is NOT muted, so timers, alarms and music still sound.
     void SetMicMuted(bool muted) { muted_ = muted; }
     bool mic_muted() const { return muted_.load(); }
 

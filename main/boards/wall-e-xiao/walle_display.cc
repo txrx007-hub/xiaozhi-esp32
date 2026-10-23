@@ -8,6 +8,7 @@
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_random.h>
 
@@ -570,16 +571,23 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
 void WalleDisplay::DrawMusicIcon(int icon) {
     lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_TRANSP);   // see-through: the black cover behind it does the covering, below the top bar only
 #ifdef WALLE_HAS_MUSIC_ART
-    if (icon >= 2) {   // a ready-made picture, copied pixel by pixel into the middle of the canvas
+    if (icon >= 2) {   // a ready-made picture, written straight into the canvas memory in one go
+        // (lv_canvas_set_px per pixel asks the screen to redraw 21,904 times; that took the display lock for a moment and made the radio skip when the picture changed)
+        const int64_t began = esp_timer_get_time();
         const uint16_t* art = icon == 2 ? kMusicArt3 : kMusicArt4;
         const int x0 = (kMusicW - kMusicArtSize) / 2;
+        lv_draw_buf_t* buf = lv_canvas_get_draw_buf(music_canvas_);
         for (int y = 0; y < kMusicArtSize; ++y) {
+            uint32_t* row = reinterpret_cast<uint32_t*>(buf->data + static_cast<size_t>(y) * buf->header.stride) + x0;
+            const uint16_t* src = art + y * kMusicArtSize;
             for (int x = 0; x < kMusicArtSize; ++x) {
-                const uint16_t v = art[y * kMusicArtSize + x];
-                const uint8_t r = ((v >> 11) & 31) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
-                lv_canvas_set_px(music_canvas_, x0 + x, y, lv_color_make(r, g, b), LV_OPA_COVER);
+                const uint32_t v = src[x];
+                const uint32_t r = (v >> 8) & 0xF8, g = (v >> 3) & 0xFC, bl = (v << 3) & 0xF8;
+                row[x] = 0xFF000000u | ((r | (r >> 5)) << 16) | ((g | (g >> 6)) << 8) | (bl | (bl >> 5));   // ARGB8888, the 5/6 bit colours stretched to 8 bit
             }
         }
+        lv_obj_invalidate(music_canvas_);
+        ESP_LOGI(TAG, "Music icon %d drawn in %d ms", icon + 1, static_cast<int>((esp_timer_get_time() - began) / 1000));
         return;
     }
 #else

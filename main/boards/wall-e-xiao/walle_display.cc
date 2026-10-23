@@ -231,6 +231,15 @@ WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_han
     args.name = "emotion_hold";
     esp_timer_create(&args, &hold_timer_);
 
+    esp_timer_create_args_t boot_args = {};
+    boot_args.callback = [](void* arg) {
+        auto* self = static_cast<WalleDisplay*>(arg);
+        Application::GetInstance().Schedule([self]() { self->HideBootSplash(); });   // LVGL work on the main task
+    };
+    boot_args.arg = this;
+    boot_args.name = "boot_splash";
+    esp_timer_create(&boot_args, &boot_timer_);
+
     esp_timer_create_args_t subtitle_args = {};
     subtitle_args.callback = [](void* arg) {
         auto* self = static_cast<WalleDisplay*>(arg);
@@ -876,6 +885,18 @@ void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
 }
 
 void WalleDisplay::SetEmotion(const char* emotion) {
+    if (!boot_done_ && emotion != nullptr && strcmp(emotion, "robot_2") == 0) {
+        ShowBootSplash();   // the application's start-up face, set right after the assets are loaded
+    } else if (boot_img_ != nullptr) {
+        // Jarvis moved on: the boot screen goes as soon as it has played its minimum time
+        const int64_t left_us = boot_min_until_us_ - esp_timer_get_time();
+        esp_timer_stop(boot_timer_);
+        if (left_us <= 0) {
+            HideBootSplash();
+        } else {
+            esp_timer_start_once(boot_timer_, static_cast<uint64_t>(left_us));
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(emotion_mutex_);
         auto_emotion_ = emotion != nullptr ? emotion : "neutral";
@@ -885,6 +906,51 @@ void WalleDisplay::SetEmotion(const char* emotion) {
     }
     ApplyEmotionRecolor(auto_emotion_);
     SpiLcdDisplay::SetEmotion(emotion);
+}
+
+void WalleDisplay::ShowBootSplash() {
+    boot_done_ = true;
+    auto collection = static_cast<LvglTheme*>(current_theme_)->emoji_collection();
+    const LvglImage* image = collection != nullptr ? collection->GetEmojiImage("boot") : nullptr;
+    if (image == nullptr || !image->IsGif()) {
+        return;   // no boot.gif in this build: the normal start-up screen
+    }
+    DisplayLockGuard lock(this);
+    boot_gif_ = std::make_unique<LvglGif>(image->image_dsc());
+    if (!boot_gif_->IsLoaded()) {
+        ESP_LOGE(TAG, "boot.gif could not be loaded");
+        boot_gif_.reset();
+        return;
+    }
+    boot_img_ = lv_image_create(lv_layer_top());   // the top layer covers everything, the status bar included
+    lv_obj_set_size(boot_img_, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_pos(boot_img_, 0, 0);
+    lv_obj_set_style_bg_color(boot_img_, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(boot_img_, LV_OPA_COVER, 0);
+    lv_image_set_inner_align(boot_img_, LV_IMAGE_ALIGN_CENTER);
+    lv_image_set_src(boot_img_, boot_gif_->image_dsc());
+    boot_gif_->SetFrameCallback([this]() {
+        if (boot_img_ != nullptr && boot_gif_) lv_image_set_src(boot_img_, boot_gif_->image_dsc());
+    });
+    boot_gif_->Start();
+    boot_min_until_us_ = esp_timer_get_time() + static_cast<int64_t>(kBootMinMs) * 1000;
+    esp_timer_start_once(boot_timer_, static_cast<uint64_t>(kBootMaxMs) * 1000);
+    ESP_LOGI(TAG, "Boot screen on");
+}
+
+void WalleDisplay::HideBootSplash() {
+    if (boot_img_ == nullptr) {
+        return;
+    }
+    esp_timer_stop(boot_timer_);
+    DisplayLockGuard lock(this);
+    if (boot_gif_) {
+        boot_gif_->Stop();
+        boot_gif_.reset();
+    }
+    lv_obj_delete(boot_img_);
+    boot_img_ = nullptr;
+    ESP_LOGI(TAG, "Boot screen off");
 }
 
 void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {

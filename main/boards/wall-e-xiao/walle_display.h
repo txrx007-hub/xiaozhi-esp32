@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -121,6 +122,18 @@ private:
     // transparency means recoloring only tints the eye shape, not the black background);
     // every other emotion clears the tint so its own baked color shows unmodified.
     void ApplyEmotionRecolor(const std::string& emotion);
+    // Boot screen: eyes/boot.gif (made by tools/make_boot_gif.py, not in git) plays full screen, on top of everything, from the moment the assets are
+    // loaded (the application then shows its "robot_2" face) until Jarvis is ready: at least kBootMinMs, at most kBootMaxMs, once per power-up.
+    // Without a boot.gif in the build nothing changes.
+    void ShowBootSplash();
+    void HideBootSplash();
+    static constexpr int kBootMinMs = 3800;    // one full pulse of the eye
+    static constexpr int kBootMaxMs = 15000;   // never longer (no Wi-Fi: the setup screen must show)
+    std::unique_ptr<LvglGif> boot_gif_;
+    lv_obj_t* boot_img_ = nullptr;
+    bool boot_done_ = false;
+    int64_t boot_min_until_us_ = 0;
+    esp_timer_handle_t boot_timer_ = nullptr;
 
     std::atomic<uint32_t> frame_count_{0};
     std::mutex fps_mutex_;

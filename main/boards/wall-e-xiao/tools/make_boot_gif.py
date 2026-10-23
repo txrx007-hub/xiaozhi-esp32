@@ -1,11 +1,13 @@
-"""Makes the boot screen: eyes/boot.gif, shown full screen from power-on until Jarvis is ready (see WalleDisplay::ShowBootSplash).
+"""Makes the boot screen: boot.gif next to the board code, built into the app and shown full screen from power-on until Jarvis is ready
+(see WalleDisplay::ShowBootSplash).
 
     python make_boot_gif.py <picture> [--steps 24] [--frame-ms 60]        (needs Pillow)
 
 The picture (any size or shape) is cut to a square around its brightest red spot - a glowing eye - and turned into a 240 x 240 loop in which that
 red glow dims to off and lights up again: lit, fading out, dark, fading back in. Only the glow changes, so the GIF stays small (about 250 KB).
 
-eyes/boot.gif is NOT in git (the pictures are not mine to publish): without it the firmware still builds and boots with the normal screen.
+boot.gif is NOT in git (the pictures are not mine to publish): without it the firmware still builds and boots with the normal screen.
+After making or removing it, build again (the build checks for the file).
 """
 import argparse
 import math
@@ -13,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image
 
-OUT = Path(__file__).resolve().parents[1] / "eyes" / "boot.gif"
+OUT = Path(__file__).resolve().parents[1] / "boot.gif"
 SIZE = 240
 
 

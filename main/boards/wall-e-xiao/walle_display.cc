@@ -17,6 +17,11 @@
 #include "config.h"
 #include "lvgl_theme.h"
 
+#ifdef WALLE_BOOT_GIF   // boot.gif, built into the app by main/CMakeLists.txt when the file is there
+extern const uint8_t boot_gif_start[] asm("_binary_boot_gif_start");
+extern const uint8_t boot_gif_end[] asm("_binary_boot_gif_end");
+#endif
+
 #define TAG "WalleDisplay"
 
 namespace {
@@ -280,6 +285,7 @@ void WalleDisplay::SetupUI() {
     lv_timer_create(
         [](lv_timer_t* t) { static_cast<WalleDisplay*>(lv_timer_get_user_data(t))->UpdateRibbon(); },
         40, this);
+    ShowBootSplash();   // last, so it lies over everything on the top layer (the status dot too)
 }
 
 int WalleDisplay::Fps() {
@@ -885,9 +891,8 @@ void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
 }
 
 void WalleDisplay::SetEmotion(const char* emotion) {
-    if (!boot_done_ && emotion != nullptr && strcmp(emotion, "robot_2") == 0) {
-        ShowBootSplash();   // the application's start-up face, set right after the assets are loaded
-    } else if (boot_img_ != nullptr) {
+    // "robot_2" is the application's own start-up face (set when the assets are loaded): the boot screen stays over it
+    if (boot_img_ != nullptr && !(emotion != nullptr && strcmp(emotion, "robot_2") == 0)) {
         // Jarvis moved on: the boot screen goes as soon as it has played its minimum time
         const int64_t left_us = boot_min_until_us_ - esp_timer_get_time();
         esp_timer_stop(boot_timer_);
@@ -909,14 +914,16 @@ void WalleDisplay::SetEmotion(const char* emotion) {
 }
 
 void WalleDisplay::ShowBootSplash() {
-    boot_done_ = true;
-    auto collection = static_cast<LvglTheme*>(current_theme_)->emoji_collection();
-    const LvglImage* image = collection != nullptr ? collection->GetEmojiImage("boot") : nullptr;
-    if (image == nullptr || !image->IsGif()) {
-        return;   // no boot.gif in this build: the normal start-up screen
+    if (boot_done_) {
+        return;
     }
+    boot_done_ = true;
+#ifndef WALLE_BOOT_GIF
+    return;   // no boot.gif in this build: the normal start-up screen
+#else
+    static LvglRawImage image(const_cast<uint8_t*>(boot_gif_start), static_cast<size_t>(boot_gif_end - boot_gif_start));
     DisplayLockGuard lock(this);
-    boot_gif_ = std::make_unique<LvglGif>(image->image_dsc());
+    boot_gif_ = std::make_unique<LvglGif>(image.image_dsc());
     if (!boot_gif_->IsLoaded()) {
         ESP_LOGE(TAG, "boot.gif could not be loaded");
         boot_gif_.reset();
@@ -936,6 +943,7 @@ void WalleDisplay::ShowBootSplash() {
     boot_min_until_us_ = esp_timer_get_time() + static_cast<int64_t>(kBootMinMs) * 1000;
     esp_timer_start_once(boot_timer_, static_cast<uint64_t>(kBootMaxMs) * 1000);
     ESP_LOGI(TAG, "Boot screen on");
+#endif
 }
 
 void WalleDisplay::HideBootSplash() {

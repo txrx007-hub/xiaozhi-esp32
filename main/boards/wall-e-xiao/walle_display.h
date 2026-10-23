@@ -122,8 +122,8 @@ private:
     // transparency means recoloring only tints the eye shape, not the black background);
     // every other emotion clears the tint so its own baked color shows unmodified.
     void ApplyEmotionRecolor(const std::string& emotion);
-    // Boot screen: eyes/boot.gif (made by tools/make_boot_gif.py, not in git) plays full screen, on top of everything, from the moment the assets are
-    // loaded (the application then shows its "robot_2" face) until Jarvis is ready: at least kBootMinMs, at most kBootMaxMs, once per power-up.
+    // Boot screen: boot.gif (made by tools/make_boot_gif.py, not in git, built into the app) plays full screen, on top of everything, from the end of
+    // SetupUI - right after power-on - until Jarvis shows its first real face: at least kBootMinMs, at most kBootMaxMs, once per power-up.
     // Without a boot.gif in the build nothing changes.
     void ShowBootSplash();
     void HideBootSplash();

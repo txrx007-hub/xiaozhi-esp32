@@ -1049,6 +1049,13 @@ if(BOARD_DIR STREQUAL "wall-e-xiao" AND NOT BOARD_WEB_FILES)
                         "Run:  git submodule update --init   (or clone with --recurse-submodules)")
 endif()
 
+# WALL-E: an optional boot picture, boards/<dir>/boot.gif (not in git), built into the app so it can show right after power-on, before the assets
+# partition is loaded (that only happens once Wi-Fi is up).
+set(BOARD_BOOT_GIF "")
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/boot.gif)
+    set(BOARD_BOOT_GIF ${CMAKE_CURRENT_SOURCE_DIR}/boards/${BOARD_DIR}/boot.gif)
+endif()
+
 # If target chip is ESP32, exclude specific files to avoid build errors
 if(CONFIG_IDF_TARGET_ESP32)
     list(REMOVE_ITEM SOURCES "audio/codecs/box_audio_codec.cc"
@@ -1110,7 +1117,7 @@ if(CONFIG_BOARD_TYPE_ESP32_P4_FUNCTION_EV_BOARD)
     )
 endif()
 idf_component_register(SRCS ${SOURCES}
-                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${BOARD_SOUNDS} ${BOARD_WEB_FILES}
+                    EMBED_FILES ${LANG_SOUNDS} ${COMMON_SOUNDS} ${BOARD_SOUNDS} ${BOARD_WEB_FILES} ${BOARD_BOOT_GIF}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     PRIV_REQUIRES
@@ -1147,6 +1154,9 @@ idf_component_register(SRCS ${SOURCES}
                         xiaozhi-fonts
                         ${MAIN_PRIV_REQUIRES_EXTRA}
                     )
+if(BOARD_BOOT_GIF)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE WALLE_BOOT_GIF=1)
+endif()
 
 # Keep project-owned C++ on GNU C++23. ESP-IDF 6 may default to a newer
 # dialect; pin the baseline so main/ does not depend on it.

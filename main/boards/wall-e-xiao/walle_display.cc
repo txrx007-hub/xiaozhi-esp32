@@ -140,6 +140,13 @@ void DrawCircle(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32
     lv_draw_arc(layer, &arc);
 }
 
+// Music icons 3 and 4 are two ready-made pictures (148 x 148, RGB565) from walle_music_art.inc, made by tools/make_music_art.py. That file is not in git: without it
+// those two choices show the drawn icons 1 and 2 instead, and everything else builds as before.
+#if __has_include("walle_music_art.inc")
+#include "walle_music_art.inc"
+#define WALLE_HAS_MUSIC_ART 1
+#endif
+
 // Music screen (the eyes are replaced by a headphones picture while music or radio plays). The picture is drawn here, shape by shape, into a 204 x 148 canvas (a 176 x 128 design, scaled):
 // two looks, "music icon 1" (one warm colour) and "music icon 2" (colour gradients).
 constexpr float kMusicScale = 1.16f;                 // the pictures are designed on a 176 x 128 grid and drawn this much larger
@@ -562,6 +569,22 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
 
 void WalleDisplay::DrawMusicIcon(int icon) {
     lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_TRANSP);   // see-through: the black cover behind it does the covering, below the top bar only
+#ifdef WALLE_HAS_MUSIC_ART
+    if (icon >= 2) {   // a ready-made picture, copied pixel by pixel into the middle of the canvas
+        const uint16_t* art = icon == 2 ? kMusicArt3 : kMusicArt4;
+        const int x0 = (kMusicW - kMusicArtSize) / 2;
+        for (int y = 0; y < kMusicArtSize; ++y) {
+            for (int x = 0; x < kMusicArtSize; ++x) {
+                const uint16_t v = art[y * kMusicArtSize + x];
+                const uint8_t r = ((v >> 11) & 31) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
+                lv_canvas_set_px(music_canvas_, x0 + x, y, lv_color_make(r, g, b), LV_OPA_COVER);
+            }
+        }
+        return;
+    }
+#else
+    icon &= 1;   // no picture file in this build: icons 3 and 4 show the drawn icons 1 and 2
+#endif
     lv_layer_t layer;
     lv_canvas_init_layer(music_canvas_, &layer);
     // The two pictures are designed on a 176 x 128 grid; every position, size and line width goes through k() so they can be drawn larger without redoing the design.

@@ -20,8 +20,8 @@ constexpr const char* kLogLevels[] = {"error", "warn", "info", "debug"};
 constexpr const char* const* kVisualizerModes = walle_spectrum::kModeNames;
 constexpr int kVisualizerModeCount = walle_spectrum::kModeCount;
 // The picture that replaces the eyes while music plays.
-constexpr const char* kMusicIcons[] = {"music icon 1", "music icon 2"};
-constexpr int kMusicIconCount = 2;
+constexpr const char* kMusicIcons[] = {"music icon 1", "music icon 2", "music icon 3", "music icon 4"};
+constexpr int kMusicIconCount = 4;
 
 std::string Trim(const std::string& text) {
     size_t start = 0;
@@ -80,7 +80,7 @@ WalleSettings::WalleSettings() {
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
          "what the screen shows while Jarvis speaks: off, winamp, rainbow, scope, radial, vu, mouth or orb"},
         {"music_icon", Kind::kMusicIcon, 0, kMusicIconCount - 1, 0,
-         "the picture that replaces the eyes while music plays: music icon 1 or music icon 2"},
+         "the picture that replaces the eyes while music plays: music icon 1, 2, 3 or 4"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
 
@@ -191,7 +191,7 @@ std::string WalleSettings::Range(const Def& def) const {
         case Kind::kVisualizerMode:
             return "off, winamp, scope, radial, vu, mouth, orb, rainbow";
         case Kind::kMusicIcon:
-            return "music icon 1, music icon 2";
+            return "music icon 1, music icon 2, music icon 3, music icon 4";
         case Kind::kBool:
             return "0 or 1";
         case Kind::kText:
@@ -296,7 +296,7 @@ std::expected<int, std::string> WalleSettings::Parse(const Def& def,
                     return i;
                 }
             }
-            return std::unexpected("music_icon must be music icon 1 or music icon 2.");
+            return std::unexpected("music_icon must be music icon 1, 2, 3 or 4.");
 
         default:
             if (!ParseInt(text, value)) {

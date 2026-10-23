@@ -124,7 +124,7 @@ cJSON* SettingToJson(const WalleSettings::Def& def) {
         case WalleSettings::Kind::kMusicIcon: {
             cJSON_AddStringToObject(item, "value", settings.FormatCurrent(def).c_str());
             cJSON* options = cJSON_AddArrayToObject(item, "options");
-            for (const char* icon : {"music icon 1", "music icon 2"}) {
+            for (const char* icon : {"music icon 1", "music icon 2", "music icon 3", "music icon 4"}) {
                 cJSON_AddItemToArray(options, cJSON_CreateString(icon));
             }
             break;

@@ -16,6 +16,7 @@
 #include "application.h"
 #include "settings.h"
 #include "wall_e_board.h"
+#include "walle_server.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
 #include "wifi_manager.h"
@@ -75,25 +76,14 @@ std::string CheckWifi() {
 
 std::string CheckServer() {
     const std::string host = ServerHost();
-    struct addrinfo hints = {};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo* result = nullptr;
     const int64_t start = esp_timer_get_time();
-    if (getaddrinfo(host.c_str(), "443", &hints, &result) != 0 || result == nullptr) {
-        return "I could not look up the server " + host + ".";
-    }
-    int sock = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
-    struct timeval timeout = {3, 0};
-    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-    const bool ok = sock >= 0 && connect(sock, result->ai_addr, result->ai_addrlen) == 0;
+    std::string detail;
+    // The port of the saved server address (8003 on an own backend). This used to try port 443, which only the original cloud server has, so an own backend
+    // always "did not answer" even while the robot was talking to it.
+    const bool ok = walle_server::Reachable(3000, &detail);
     const int ms = static_cast<int>((esp_timer_get_time() - start) / 1000);
-    if (sock >= 0) {
-        close(sock);
-    }
-    freeaddrinfo(result);
     if (!ok) {
-        return "The server " + host + " did not answer.";
+        return detail.rfind("could not look up", 0) == 0 ? "I could not look up the server " + host + "." : "The server " + host + " did not answer.";
     }
     return Fmt("The server %s answered in %d milliseconds.", host.c_str(), ms);
 }

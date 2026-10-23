@@ -140,11 +140,12 @@ void DrawCircle(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32
     lv_draw_arc(layer, &arc);
 }
 
-// Music screen (the eyes are replaced by a headphones picture while music or radio plays). The picture is drawn here, shape by shape, into a 176 x 128 canvas:
+// Music screen (the eyes are replaced by a headphones picture while music or radio plays). The picture is drawn here, shape by shape, into a 204 x 148 canvas (a 176 x 128 design, scaled):
 // two looks, "music icon 1" (one warm colour) and "music icon 2" (colour gradients).
-constexpr int kMusicW = 176;
-constexpr int kMusicH = 128;
-constexpr int kMusicTop = 28;        // below the status line
+constexpr float kMusicScale = 1.16f;                 // the pictures are designed on a 176 x 128 grid and drawn this much larger
+constexpr int kMusicW = 204;                          // 176 * 1.16
+constexpr int kMusicH = 148;                          // 128 * 1.16
+constexpr int kMusicTop = 4;                          // the status line is blank while the music screen shows, so the picture may use that band too
 constexpr int kMusicBgBottom = 200;  // black cover down to just above the Winamp strip's bottom / the subtitle bar
 constexpr uint32_t kMusicPeach = 0xf3d3b4;
 
@@ -562,57 +563,62 @@ void WalleDisplay::DrawMusicIcon(int icon) {
     lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_COVER);
     lv_layer_t layer;
     lv_canvas_init_layer(music_canvas_, &layer);
-    constexpr int cx = kMusicW / 2;
+    // The two pictures are designed on a 176 x 128 grid; every position, size and line width goes through k() so they can be drawn larger without redoing the design.
+    auto k = [](int v) { return static_cast<int>(lroundf(static_cast<float>(v) * kMusicScale)); };
+    auto kw = [&](int v) { return std::max(1, k(v)); };   // a line never gets thinner than one pixel
+    auto rect = [&](int x0, int y0, int x1, int y1, uint32_t color, int radius) { FillRect(&layer, k(x0), k(y0), k(x1), k(y1), color, k(radius)); };
+    auto ring = [&](int cx, int cy, int radius, int width, uint32_t color, int a0 = 0, int a1 = 360) { DrawCircle(&layer, k(cx), k(cy), k(radius), kw(width), color, a0, a1); };
+    constexpr int cx = 88;   // the middle of the 176 grid
     if (icon == 0) {
         // Music icon 1: peach headphones around a dashed play button, "music player" underneath.
-        DrawCircle(&layer, cx, 56, 48, 10, kMusicPeach, 180, 360);        // the band
-        FillRect(&layer, 34, 50, 56, 98, kMusicPeach, 10);                // left cup
-        FillRect(&layer, 120, 50, 142, 98, kMusicPeach, 10);              // right cup
-        FillRect(&layer, 50, 60, 52, 90, 0x000000, 1);                    // the slit on the inner edge of each cup
-        FillRect(&layer, 124, 60, 126, 90, 0x000000, 1);
-        for (int k = 0; k < 12; ++k) {                                    // the dashed ring, open at the top and the bottom
-            DrawCircle(&layer, cx, 76, 27, 3, kMusicPeach, k * 30 + 7, k * 30 + 23);
+        ring(cx, 56, 48, 10, kMusicPeach, 180, 360);                       // the band
+        rect(34, 50, 56, 98, kMusicPeach, 10);                              // left cup
+        rect(120, 50, 142, 98, kMusicPeach, 10);                            // right cup
+        FillRect(&layer, k(50), k(60), k(52), k(90), 0x000000, 1);          // the slit on the inner edge of each cup
+        FillRect(&layer, k(124), k(60), k(126), k(90), 0x000000, 1);
+        for (int j = 0; j < 12; ++j) {                                      // the dashed ring, open at the top and the bottom
+            ring(cx, 76, 27, 3, kMusicPeach, j * 30 + 7, j * 30 + 23);
         }
-        DrawCircle(&layer, cx, 49, 3, 3, kMusicPeach);
-        DrawCircle(&layer, cx, 103, 3, 3, kMusicPeach);
+        ring(cx, 49, 3, 3, kMusicPeach);
+        ring(cx, 103, 3, 3, kMusicPeach);
         lv_draw_triangle_dsc_t tri;
         lv_draw_triangle_dsc_init(&tri);
         tri.color = lv_color_hex(kMusicPeach);
-        tri.p[0] = {cx - 6, 64};
-        tri.p[1] = {cx - 6, 88};
-        tri.p[2] = {cx + 12, 76};
+        tri.p[0] = {k(cx - 6), k(64)};
+        tri.p[1] = {k(cx - 6), k(88)};
+        tri.p[2] = {k(cx + 12), k(76)};
         lv_draw_triangle(&layer, &tri);
-        DrawText(&layer, "music player", 0, 106, kMusicW - 1, 124, kMusicPeach, LV_TEXT_ALIGN_CENTER);
+        DrawText(&layer, "music player", 0, k(106), kMusicW - 1, k(124), kMusicPeach, LV_TEXT_ALIGN_CENTER);
     } else {
         // Music icon 2: a ring that runs from orange through pink to violet, headphones with orange cushions, a play button, "MUSIC PLAYER".
         constexpr uint32_t kStops[4] = {0xe9692f, 0xe6609a, 0xd264b8, 0xa466c8};  // left, top, right, bottom
-        for (int k = 0; k < 36; ++k) {
-            const int a = k * 10;  // 0 = right, 90 = bottom, 180 = left, 270 = top
+        for (int j = 0; j < 36; ++j) {
+            const int a = j * 10;  // 0 = right, 90 = bottom, 180 = left, 270 = top
             const float pos = static_cast<float>((a + 5 + 180) % 360) / 90.0f;  // 0 at the left, 1 at the top, 2 at the right, 3 at the bottom
             const int i0 = static_cast<int>(pos) % 4;
-            DrawCircle(&layer, cx, 53, 51, 5, Lerp(kStops[i0], kStops[(i0 + 1) % 4], pos - std::floor(pos)), a, (a + 11) % 360);
+            ring(cx, 53, 51, 5, Lerp(kStops[i0], kStops[(i0 + 1) % 4], pos - std::floor(pos)), a, (a + 11) % 360);
         }
-        DrawCircle(&layer, cx, 46, 37, 5, 0x3c3c4e, 180, 360);            // the band
-        DrawCircle(&layer, cx, 46, 37, 2, 0xf29a3a, 200, 270);            // its coloured edge
-        DrawCircle(&layer, cx, 46, 37, 2, 0xe6609a, 270, 340);
+        ring(cx, 46, 37, 5, 0x3c3c4e, 180, 360);                            // the band
+        ring(cx, 46, 37, 2, 0xf29a3a, 200, 270);                            // its coloured edge
+        ring(cx, 46, 37, 2, 0xe6609a, 270, 340);
         // left side: lilac outer pad, dark cup, orange cushion; the right side mirrors it
-        FillRect(&layer, 53, 52, 57, 74, 0x8e7aa8, 2);
-        FillRect(&layer, 57, 46, 65, 80, 0x2a2a3a, 2);
-        FillGradient(&layer, 65, 44, 73, 82, 0xf9a833, 0xf0582a, 0xb02a5a, 4);
-        FillRect(&layer, 119, 52, 123, 74, 0x8e7aa8, 2);
-        FillRect(&layer, 111, 46, 119, 80, 0x2a2a3a, 2);
-        FillGradient(&layer, 103, 44, 111, 82, 0xf9a833, 0xf0582a, 0xb02a5a, 4);
-        DrawCircle(&layer, cx, 63, 14, 14, 0x23232f);                      // the play button
-        DrawCircle(&layer, cx, 63, 14, 1, 0x7a62a8, 200, 340);
+        rect(53, 52, 57, 74, 0x8e7aa8, 2);
+        rect(57, 46, 65, 80, 0x2a2a3a, 2);
+        FillGradient(&layer, k(65), k(44), k(73), k(82), 0xf9a833, 0xf0582a, 0xb02a5a, k(4));
+        rect(119, 52, 123, 74, 0x8e7aa8, 2);
+        rect(111, 46, 119, 80, 0x2a2a3a, 2);
+        FillGradient(&layer, k(103), k(44), k(111), k(82), 0xf9a833, 0xf0582a, 0xb02a5a, k(4));
+        ring(cx, 63, 14, 14, 0x23232f);                                     // the play button
+        ring(cx, 63, 14, 1, 0x7a62a8, 200, 340);
         lv_draw_triangle_dsc_t tri;
         lv_draw_triangle_dsc_init(&tri);
         tri.color = lv_color_hex(0xf0582a);
-        tri.p[0] = {cx - 5, 55};
-        tri.p[1] = {cx - 5, 71};
-        tri.p[2] = {cx + 8, 63};
+        tri.p[0] = {k(cx - 5), k(55)};
+        tri.p[1] = {k(cx - 5), k(71)};
+        tri.p[2] = {k(cx + 8), k(63)};
         lv_draw_triangle(&layer, &tri);
-        DrawText(&layer, "MUSIC", 0, 108, cx - 4, 124, 0x56b8d8, LV_TEXT_ALIGN_RIGHT);
-        DrawText(&layer, "PLAYER", cx + 4, 108, kMusicW - 1, 124, 0xe0607a, LV_TEXT_ALIGN_LEFT);
+        DrawText(&layer, "MUSIC", 0, k(108), k(cx - 4), k(124), 0x56b8d8, LV_TEXT_ALIGN_RIGHT);
+        DrawText(&layer, "PLAYER", k(cx + 4), k(108), kMusicW - 1, k(124), 0xe0607a, LV_TEXT_ALIGN_LEFT);
     }
     lv_canvas_finish_layer(music_canvas_, &layer);
 }

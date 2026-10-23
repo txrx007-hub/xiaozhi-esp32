@@ -1157,6 +1157,9 @@ idf_component_register(SRCS ${SOURCES}
 if(BOARD_BOOT_GIF)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE WALLE_BOOT_GIF=1)
 endif()
+if(BOARD_DIR STREQUAL "wall-e-xiao")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE LCD_FIRST_FILL=0x0000)   # the screen starts black (see display/lcd_display.cc)
+endif()
 
 # Keep project-owned C++ on GNU C++23. ESP-IDF 6 may default to a newer
 # dialect; pin the baseline so main/ does not depend on it.

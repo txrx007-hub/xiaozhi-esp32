@@ -97,12 +97,18 @@ LcdDisplay::LcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_
     esp_timer_create(&preview_timer_args, &preview_timer_);
 }
 
+// WALL-E: the colour the panel is filled with before it is switched on. White upstream; a board whose screen starts dark (wall-e-xiao: a boot
+// picture, eyes on black) sets LCD_FIRST_FILL=0x0000 in main/CMakeLists.txt, so power-on shows no white flash.
+#ifndef LCD_FIRST_FILL
+#define LCD_FIRST_FILL 0xFFFF
+#endif
+
 SpiLcdDisplay::SpiLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_handle_t panel,
                              int width, int height, int offset_x, int offset_y, bool mirror_x,
                              bool mirror_y, bool swap_xy)
     : LcdDisplay(panel_io, panel, width, height) {
-    // draw white
-    std::vector<uint16_t> buffer(width_, 0xFFFF);
+    // draw white (or the board's first-fill colour)
+    std::vector<uint16_t> buffer(width_, LCD_FIRST_FILL);
     for (int y = 0; y < height_; y++) {
         esp_lcd_panel_draw_bitmap(panel_, 0, y, width_, y + 1, buffer.data());
     }

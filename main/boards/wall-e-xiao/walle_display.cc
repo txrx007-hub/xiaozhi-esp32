@@ -236,6 +236,12 @@ WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_han
     args.name = "emotion_hold";
     esp_timer_create(&args, &hold_timer_);
 
+    {
+        DisplayLockGuard lock(this);   // until SetupUI the screen stays black (LVGL's default screen is white)
+        lv_obj_set_style_bg_color(lv_screen_active(), lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, 0);
+    }
+
     esp_timer_create_args_t boot_args = {};
     boot_args.callback = [](void* arg) {
         auto* self = static_cast<WalleDisplay*>(arg);
@@ -262,13 +268,14 @@ WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_han
 }
 
 void WalleDisplay::SetupUI() {
+    // One lock for the whole set-up, so no frame is drawn half-way: the stock UI starts in the light theme (a white flash before the dark eyes).
+    DisplayLockGuard lock(this);
     SpiLcdDisplay::SetupUI();
     // The eye GIFs (recolored Otto set) are drawn on black, so start in the dark theme,
     // as upstream's Otto board does.
     if (auto* dark = LvglThemeManager::GetInstance().GetTheme("dark"); dark != nullptr) {
         SetTheme(dark);
     }
-    DisplayLockGuard lock(this);
     // Frame counter for the settings page's FPS: LV_EVENT_RENDER_START fires once per refresh
     // cycle that has something to draw (REFR_READY would also count idle cycles).
     lv_display_add_event_cb(

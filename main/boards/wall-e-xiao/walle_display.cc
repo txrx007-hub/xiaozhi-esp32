@@ -146,6 +146,7 @@ constexpr float kMusicScale = 1.16f;                 // the pictures are designe
 constexpr int kMusicW = 204;                          // 176 * 1.16
 constexpr int kMusicH = 148;                          // 128 * 1.16
 constexpr int kMusicTop = 4;                          // the status line is blank while the music screen shows, so the picture may use that band too
+constexpr int kMusicBgTop = 28;                       // the black cover starts below the top bar: its Wi-Fi icon and the dot at the right stay visible
 constexpr int kMusicBgBottom = 200;  // black cover down to just above the Winamp strip's bottom / the subtitle bar
 constexpr uint32_t kMusicPeach = 0xf3d3b4;
 
@@ -500,16 +501,16 @@ bool WalleDisplay::EnsureMusicCanvas() {
     if (music_buf_ != nullptr) {
         return true;
     }
-    const size_t size = LV_CANVAS_BUF_SIZE(kMusicW, kMusicH, 16, LV_DRAW_BUF_STRIDE_ALIGN);
+    const size_t size = LV_CANVAS_BUF_SIZE(kMusicW, kMusicH, 32, LV_DRAW_BUF_STRIDE_ALIGN);   // ARGB: transparent where nothing is drawn, so the top bar shows through
     music_buf_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (music_buf_ == nullptr) {
         ESP_LOGE(TAG, "No memory for the %u byte music picture", (unsigned)size);
         return false;
     }
-    music_bg_ = MakeBox(lv_layer_top(), 0, kMusicTop, width_, kMusicBgBottom - kMusicTop, 0x000000, 0);
+    music_bg_ = MakeBox(lv_layer_top(), 0, kMusicBgTop, width_, kMusicBgBottom - kMusicBgTop, 0x000000, 0);
     music_canvas_ = lv_canvas_create(lv_layer_top());
     lv_obj_set_pos(music_canvas_, (width_ - kMusicW) / 2, kMusicTop);
-    lv_canvas_set_buffer(music_canvas_, music_buf_, kMusicW, kMusicH, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(music_canvas_, music_buf_, kMusicW, kMusicH, LV_COLOR_FORMAT_ARGB8888);
     lv_obj_remove_flag(music_canvas_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(music_bg_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(music_canvas_, LV_OBJ_FLAG_HIDDEN);
@@ -560,7 +561,7 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
 }
 
 void WalleDisplay::DrawMusicIcon(int icon) {
-    lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_COVER);
+    lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_TRANSP);   // see-through: the black cover behind it does the covering, below the top bar only
     lv_layer_t layer;
     lv_canvas_init_layer(music_canvas_, &layer);
     // The two pictures are designed on a 176 x 128 grid; every position, size and line width goes through k() so they can be drawn larger without redoing the design.

@@ -24,6 +24,9 @@ extern const uint8_t boot_gif_end[] asm("_binary_boot_gif_end");
 
 #define TAG "WalleDisplay"
 
+// The stock top bar's icon font: compiled in and never swapped (unlike the theme's text font), so the clock's Wi-Fi icon may use it.
+LV_FONT_DECLARE(BUILTIN_ICON_FONT);
+
 namespace {
 
 // Idle clock palette (port of the polunzh idle-clock idea to 240x240)
@@ -1103,7 +1106,7 @@ void WalleDisplay::PlaceMuteIcon() {
         return;
     }
     int x = 6;
-    if (!clock_shown_ && network_label_ != nullptr) {   // the eyes keep the stock top bar: its Wi-Fi icon sits at the left edge
+    if (network_label_ != nullptr) {   // just right of the Wi-Fi icon (the stock top bar's on the eyes, its copy on the clock)
         lv_area_t a;
         lv_obj_get_coords(network_label_, &a);
         if (a.x2 > 0 && a.x2 < width_ / 2) {
@@ -1174,6 +1177,9 @@ void WalleDisplay::CreateClock() {
 
     lv_obj_t* hint = MakeLabel(clock_root_, text_font, 0x5fd3c9, "Say \"" WAKE_WORD_NAME "\"");
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
+
+    // The eyes' Wi-Fi icon, repeated on the clock in the same place (placed and kept up to date while the clock shows)
+    clock_wifi_ = MakeLabel(clock_root_, &BUILTIN_ICON_FONT, 0xffffff, "");
 
     lv_obj_add_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1299,6 +1305,12 @@ void WalleDisplay::ShowIdleClock(bool show) {
     {
         DisplayLockGuard lock(this);
         if (show) {
+            if (clock_wifi_ != nullptr && network_label_ != nullptr) {   // exactly where the eyes have it
+                lv_area_t a;
+                lv_obj_get_coords(network_label_, &a);
+                lv_obj_set_pos(clock_wifi_, a.x1, a.y1);
+                lv_label_set_text(clock_wifi_, lv_label_get_text(network_label_));
+            }
             lv_obj_remove_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
             if (status_dot_ != nullptr) {
                 lv_obj_move_foreground(status_dot_);
@@ -1320,6 +1332,13 @@ void WalleDisplay::ShowIdleClock(bool show) {
 void WalleDisplay::RefreshIdleClock() {
     if (!clock_shown_) {
         return;
+    }
+    if (clock_wifi_ != nullptr && network_label_ != nullptr) {   // the stock bar changes its icon every 10 s at most
+        DisplayLockGuard lock(this);
+        const char* icon = lv_label_get_text(network_label_);
+        if (icon != nullptr && strcmp(icon, lv_label_get_text(clock_wifi_)) != 0) {
+            lv_label_set_text(clock_wifi_, icon);
+        }
     }
     time_t now = time(nullptr);
     struct tm local;

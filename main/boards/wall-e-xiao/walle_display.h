@@ -157,6 +157,7 @@ private:
 
     lv_obj_t* status_dot_ = nullptr;
     lv_obj_t* mute_icon_ = nullptr;
+    lv_obj_t* clock_wifi_ = nullptr;
     bool mute_on_ = false;
     void CreateMuteIcon();
     void PlaceMuteIcon();  // left edge on the clock, right of the Wi-Fi icon on the eyes; on top of the layer

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include <esp_log.h>
 
@@ -53,6 +54,28 @@ bool ParseInt(const std::string& text, int& out) {
     }
     out = static_cast<int>(value);
     return true;
+}
+
+// The name a setting is stored under in NVS. NVS keys are at most 15 characters (saving a longer one aborts with
+// ESP_ERR_NVS_KEY_TOO_LONG), so a longer setting name gets a fixed short one here; the name everyone sees stays the same.
+std::string StoreKey(const char* key) {
+    static constexpr struct {
+        const char* name;
+        const char* stored;
+    } kShort[] = {
+        {"camera_brightness", "cam_brightness"},
+    };
+    for (const auto& s : kShort) {
+        if (std::strcmp(key, s.name) == 0) {
+            return s.stored;
+        }
+    }
+    const std::string name(key);
+    if (name.size() > 15) {   // a new long name without an entry above: still never crash, just store it shortened
+        ESP_LOGE(TAG, "Setting name %s is too long for NVS; stored as %s (add it to StoreKey)", key, name.substr(0, 15).c_str());
+        return name.substr(0, 15);
+    }
+    return name;
 }
 
 }  // namespace
@@ -106,11 +129,11 @@ WalleSettings::WalleSettings() {
     values_.reserve(defs_.size());
     for (const auto& def : defs_) {
         if (def.kind == Kind::kText) {
-            texts_[def.key] = settings.GetString(def.key, "");
+            texts_[def.key] = settings.GetString(StoreKey(def.key), "");
             values_.push_back(0);
             continue;
         }
-        int value = settings.GetInt(def.key, def.def);
+        int value = settings.GetInt(StoreKey(def.key), def.def);
         if (value < def.min || value > def.max) {
             value = def.def;
         }
@@ -344,7 +367,7 @@ std::expected<std::string, std::string> WalleSettings::Set(const std::string& ke
         }
         {
             Settings settings(kNamespace, true);
-            settings.SetString(def->key, value);
+            settings.SetString(StoreKey(def->key), value);
         }
         if (on_changed_) {
             on_changed_(def->key);
@@ -368,7 +391,7 @@ std::expected<std::string, std::string> WalleSettings::Set(const std::string& ke
     }
     {
         Settings settings(kNamespace, true);
-        settings.SetInt(def->key, *parsed);
+        settings.SetInt(StoreKey(def->key), *parsed);
     }
     ESP_LOGI(TAG, "%s: %s -> %s", def->key, Format(*def, old_value).c_str(),
              Format(*def, *parsed).c_str());

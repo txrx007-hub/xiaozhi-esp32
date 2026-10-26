@@ -238,6 +238,9 @@ void WallEBoard::ApplyCameraSettings() {
     camera_->SetVFlip(CAMERA_VFLIP);
     camera_->SetHMirror(CAMERA_HMIRROR);
     camera_->SetAeLevel(WalleSettings::GetInstance().GetInt("camera_brightness"));
+    if (const int saturation = WalleSettings::GetInstance().GetInt("camera_saturation"); saturation != 0) {
+        camera_->SetSaturation(saturation);   // 0 is what the sensor starts with: nothing to write
+    }
 }
 
 void WallEBoard::InitializeButtons() {
@@ -714,6 +717,10 @@ void WallEBoard::ApplySetting(const std::string& key) {
     } else if (key == "camera_brightness") {
         if (camera_ != nullptr) {
             camera_->SetAeLevel(settings.GetInt("camera_brightness"));
+        }
+    } else if (key == "camera_saturation") {
+        if (camera_ != nullptr) {
+            camera_->SetSaturation(settings.GetInt("camera_saturation"));
         }
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,

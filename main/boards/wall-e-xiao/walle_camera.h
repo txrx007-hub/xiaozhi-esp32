@@ -31,6 +31,10 @@ public:
     // more after the first frame is confirmed.
     void EnableAutoWhiteBalance();
 
+    // Colour saturation, -4 (pale) .. 4 (strong), 0 = the sensor's own default: the OV3660's colour matrix (0x5381-0x538B), written
+    // directly from the sensor driver's own table, since esp_video passes no saturation control to a DVP sensor. Other sensors: false.
+    bool SetSaturation(int level);
+
     // Detected at every startup (see the constructor): whether esp_video found a camera, and which
     // sensor it reported. Shown on the settings page and logged at boot.
     bool Detected() const { return CameraPresent(); }

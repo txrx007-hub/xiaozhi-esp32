@@ -198,7 +198,7 @@ holds the one validation routine used by both the USB console and the settings p
 
 motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / motor_b_invert /
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
-speaking) · shutter_sound 1 · camera_brightness 2 · wake_chirp 1 · quiet_start /
+speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
 visualizer_mode off · log_level warn.
 

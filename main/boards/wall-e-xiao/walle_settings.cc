@@ -64,6 +64,7 @@ std::string StoreKey(const char* key) {
         const char* stored;
     } kShort[] = {
         {"camera_brightness", "cam_brightness"},
+        {"camera_saturation", "cam_saturation"},
     };
     for (const auto& s : kShort) {
         if (std::strcmp(key, s.name) == 0) {
@@ -95,6 +96,8 @@ WalleSettings::WalleSettings() {
         {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},
         {"camera_brightness", Kind::kInt, -5, 5, 2,
          "camera exposure target: raise it if photos come out dark, lower it if bright spots wash out (0 = sensor default)"},
+        {"camera_saturation", Kind::kInt, -4, 4, 0,
+         "camera colour saturation: higher for stronger colours, lower for paler ones (0 = sensor default)"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},
         {"quiet_start", Kind::kTimeOfDay, -1, 1439, -1, "night mode start, HH:MM or off"},
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},

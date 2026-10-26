@@ -46,6 +46,8 @@ private:
     std::string explain_token_;
     std::thread encoder_thread_;
     std::mutex capture_mutex_;  // WALL-E: serializes Capture() and ProbeFrame() on video_fd_
+    void Open(const esp_video_init_config_t& config);   // WALL-E: constructor / Restart()
+    void Close();                                       // WALL-E: destructor / Restart()
 
 public:
     EspVideo(const esp_video_init_config_t& config);
@@ -56,6 +58,9 @@ public:
     // WALL-E: quiet "is the sensor delivering frames at all" check - one DQBUF/QBUF, no copy, no
     // preview. True if a frame arrived within the DQBUF timeout (3 s).
     bool ProbeFrame();
+    // WALL-E: shut the camera down completely and bring it up again in this same object (anything holding a pointer to it stays valid).
+    // config must still be alive (the board keeps it static). True when the device streams again; frames still have to be checked.
+    bool Restart(const esp_video_init_config_t& config, int pause_ms = 200);
     // WALL-E: one picture as a JPEG for the settings page's Camera button: no sound, no analysis, nothing sent anywhere. On success *out is the
     // JPEG (allocated here, the caller frees it with heap_caps_free) and *out_len its size.
     bool CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len);

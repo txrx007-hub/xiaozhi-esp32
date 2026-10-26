@@ -205,7 +205,8 @@ void WallEBoard::InitializeCamera() {
         .xclk_io = CAMERA_PIN_XCLK,
     };
 
-    esp_video_init_sccb_config_t sccb_config = {
+    // static, like dvp_pin_config: CameraBootProbe() restarts the camera with the same config later (EspVideo::Restart)
+    static esp_video_init_sccb_config_t sccb_config = {
         .init_sccb = true,
         .i2c_config =
             {
@@ -216,7 +217,7 @@ void WallEBoard::InitializeCamera() {
         .freq = 100000,
     };
 
-    esp_video_init_dvp_config_t dvp_config = {
+    static esp_video_init_dvp_config_t dvp_config = {
         .sccb_config = sccb_config,
         .reset_pin = CAMERA_PIN_RESET,
         .pwdn_pin = CAMERA_PIN_PWDN,
@@ -224,11 +225,16 @@ void WallEBoard::InitializeCamera() {
         .xclk_freq = XCLK_FREQ_HZ,
     };
 
-    esp_video_init_config_t video_config = {
+    static esp_video_init_config_t video_config = {
         .dvp = &dvp_config,
     };
+    camera_config_ = &video_config;
 
     camera_ = new WalleCamera(video_config);
+    ApplyCameraSettings();
+}
+
+void WallEBoard::ApplyCameraSettings() {
     camera_->SetVFlip(CAMERA_VFLIP);
     camera_->SetHMirror(CAMERA_HMIRROR);
     camera_->SetAeLevel(WalleSettings::GetInstance().GetInt("camera_brightness"));
@@ -821,6 +827,24 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
     UpdateStatusDot();
 }
 
+bool WallEBoard::RestartCameraInPlace(int attempt) {
+    if (camera_ == nullptr || camera_config_ == nullptr) {
+        return false;
+    }
+    if (!camera_->Restart(*camera_config_, attempt * 200)) {   // a longer pause on the second try
+        ESP_LOGE(TAG, "Camera restart in place: the camera did not start again (attempt %d)", attempt);
+        return false;
+    }
+    ApplyCameraSettings();
+    if (!camera_->ProbeFrame()) {
+        ESP_LOGW(TAG, "Camera restart in place: started, but no frames (attempt %d)", attempt);
+        return false;
+    }
+    camera_->EnableAutoWhiteBalance();   // the restart reloaded the sensor's defaults; see walle_camera.h
+    ESP_LOGI(TAG, "Camera restart in place: frames OK (attempt %d)", attempt);
+    return true;
+}
+
 void WallEBoard::CameraBootProbe() {
     const esp_reset_reason_t reason = esp_reset_reason();
     const bool cold = reason == ESP_RST_POWERON || reason == ESP_RST_BROWNOUT;
@@ -831,14 +855,24 @@ void WallEBoard::CameraBootProbe() {
         }
         return;
     }
+    // First restart only the camera, in place: shut esp_video down, leave the sensor without its clock for a moment, bring it up again.
+    // That is what the reboot below used to achieve (the sensor has been powered and settled for seconds by now, unlike at the very
+    // first start), without the robot booting twice. A pointer to the camera (the photo tool keeps one) stays valid.
+    for (int attempt = 1; attempt <= 2; ++attempt) {
+        ESP_LOGW(TAG, "Camera boot probe: no frames (reset reason %d); restarting the camera in place (attempt %d)", (int)reason, attempt);
+        if (RestartCameraInPlace(attempt)) {
+            ESP_LOGI(TAG, "Camera boot probe: frames OK after restarting the camera in place - no reboot needed");
+            return;
+        }
+    }
     if (!cold) {
         // Already a software/USB/watchdog restart: restarting again would not help and could loop.
-        ESP_LOGE(TAG, "Camera boot probe: NO frames after a warm start (reset reason %d); "
+        ESP_LOGE(TAG, "Camera boot probe: NO frames after a warm start (reset reason %d), also not after restarting the camera; "
                       "not rebooting - camera likely needs a hardware check", (int)reason);
         return;
     }
-    ESP_LOGW(TAG, "Camera boot probe: no frames after a cold power-up (reset reason %d); "
-                  "restarting once to recover the sensor", (int)reason);
+    ESP_LOGW(TAG, "Camera boot probe: still no frames after a cold power-up (reset reason %d); "
+                  "rebooting once as the last resort", (int)reason);
     Application::GetInstance().Reboot();
 }
 

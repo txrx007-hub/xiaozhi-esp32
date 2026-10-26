@@ -40,7 +40,7 @@ constexpr const char* kHelp =
     "  !server IP|URL|default  set the OTA/server URL (IP -> http://IP:8003/xiaozhi/ota/), reboots\n"
     "  !server check VALUE     dry run: what the console and the web page would accept (saves nothing)\n"
     "  !wifi SSID PASSWORD     add a saved Wi-Fi network   (!wifi list, !wifi clear)\n"
-    "  !camera                 capture one camera frame\n"
+    "  !camera                 capture one camera frame   (!camera restart: restart the camera in place)\n"
     "  !mic status|gain N|mute|unmute|meter [s]   (gain in dB, 0-24)\n"
     "  !speaker                play a test tone   (!speaker vol N, !speaker status)\n"
     "  !stop                   stop motors, speech, listening and alarms\n"
@@ -220,6 +220,8 @@ void Execute(const std::string& line) {
         } else {
             Print("usage: !wifi SSID PASSWORD | !wifi list | !wifi clear");
         }
+    } else if (cmd == "!camera" && arg(1) == "restart") {
+        Print(board.RestartCameraInPlace(1) ? "camera restarted in place: frames OK" : "camera restarted in place: NO frames");
     } else if (cmd == "!camera") {
         Print(walle_diagnostics::Run("camera"));
     } else if (cmd == "!mic") {

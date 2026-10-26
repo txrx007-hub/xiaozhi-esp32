@@ -110,7 +110,10 @@ static void log_available_video_devices() {
 #define CAM_PRINT_FOURCC(pixelformat) (void)0;
 #endif  // CONFIG_XIAOZHI_ENABLE_CAMERA_DEBUG_MODE
 
-EspVideo::EspVideo(const esp_video_init_config_t& config) {
+EspVideo::EspVideo(const esp_video_init_config_t& config) { Open(config); }
+
+// WALL-E: the constructor's work, also used by Restart() to bring the same camera object up again.
+void EspVideo::Open(const esp_video_init_config_t& config) {
     if (esp_video_init(&config) != ESP_OK) {
         ESP_LOGE(TAG, "esp_video_init failed");
         return;
@@ -400,22 +403,35 @@ EspVideo::EspVideo(const esp_video_init_config_t& config) {
 #endif  // CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE
 }
 
-EspVideo::~EspVideo() {
+EspVideo::~EspVideo() { Close(); }
+
+// WALL-E: the destructor's work, also used by Restart(): stream off, buffers unmapped, device closed, esp_video torn down.
+void EspVideo::Close() {
     if (streaming_on_ && video_fd_ >= 0) {
         int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         ioctl(video_fd_, VIDIOC_STREAMOFF, &type);
     }
+    streaming_on_ = false;
     for (auto& b : mmap_buffers_) {
         if (b.start && b.length) {
             munmap(b.start, b.length);
         }
     }
+    mmap_buffers_.clear();
     if (video_fd_ >= 0) {
         close(video_fd_);
         video_fd_ = -1;
     }
     sensor_format_ = 0;
     esp_video_deinit();
+}
+
+bool EspVideo::Restart(const esp_video_init_config_t& config, int pause_ms) {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    Close();
+    vTaskDelay(pdMS_TO_TICKS(pause_ms));   // sensor without its clock for a moment: a clean start, like a power cycle as far as software can do one
+    Open(config);
+    return video_fd_ >= 0 && streaming_on_;
 }
 
 void EspVideo::SetExplainUrl(const std::string& url, const std::string& token) {

@@ -73,6 +73,9 @@ public:
     // idle, and gone the moment someone says the wake word. Returns what to tell the user, or why not.
     std::expected<std::string, std::string> RequestQr(const std::string& target);
 
+    // Shut the camera down and bring it up again in place, then check that frames arrive (CameraBootProbe, console "!camera restart").
+    bool RestartCameraInPlace(int attempt);
+
     // From WalleStateHook (main task)
     void OnDeviceStateChanged(DeviceState previous, DeviceState now);
 
@@ -88,7 +91,8 @@ private:
     void StartRinging(const std::string& label);
     void Tick();
     void CheckWifiSetupTimeout(int64_t now);
-    void CameraBootProbe();  // main task, once per second
+    void CameraBootProbe();  // main task, once, 6 s after boot
+    void ApplyCameraSettings();   // flip, mirror and brightness: after creating the camera and after restarting it
     void UpdateStatusDot();
     void SetCpuMhz(int mhz);
     void EnterNapNow();
@@ -96,6 +100,7 @@ private:
     Button boot_button_;
     WalleDisplay* display_ = nullptr;
     WalleCamera* camera_ = nullptr;
+    const esp_video_init_config_t* camera_config_ = nullptr;   // static in InitializeCamera(); reused by EspVideo::Restart
     MotorDriver* motors_ = nullptr;
     WalleStateHook<WallEBoard> state_hook_{this};
     PowerSaveTimer* idle_timer_ = nullptr;

@@ -761,6 +761,18 @@ void WallEBoard::UpdateStatusDot() {
 void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
     state_ = now;
 
+    if (previous == kDeviceStateConnecting) {
+        if (now == kDeviceStateIdle) {
+            OnServerConnectFailed();   // the application went back to idle: the server was not reached
+        } else {
+            if (server_failures_ > 0) {
+                ESP_LOGI(TAG, "Server reached again (after %d failed attempts)", server_failures_);
+            }
+            server_failures_ = 0;
+            server_retry_at_us_ = 0;
+        }
+    }
+
     if (now == kDeviceStateSpeaking) {
         ApplyWakeThreshold(true);
         spoke_since_request_ = true;
@@ -830,6 +842,60 @@ void WallEBoard::CameraBootProbe() {
     Application::GetInstance().Reboot();
 }
 
+void WallEBoard::OnServerConnectFailed() {
+    constexpr int kPlainRetries = 2;
+    constexpr int64_t kRetryDelayUs = 5LL * 1000 * 1000;
+    if (!network_connected_ || napping_ || pending_nap_ || pending_deep_sleep_) {
+        // no Wi-Fi at all (the station reconnects by itself), or on purpose going quiet: nothing to retry
+        server_failures_ = 0;
+        server_retry_at_us_ = 0;
+        return;
+    }
+    ++server_failures_;
+    if (server_failures_ <= kPlainRetries) {
+        ESP_LOGW(TAG, "Server not reached (attempt %d); trying again in 5 s", server_failures_);
+        server_retry_at_us_ = NowUs() + kRetryDelayUs;
+    } else if (server_failures_ == kPlainRetries + 1) {
+        // Wi-Fi says connected but nothing comes back: drop the link; the station joins again by itself
+        // (WifiStation reconnects on STA_DISCONNECTED), and CheckServerRetry tries once more when it is back.
+        ESP_LOGW(TAG, "Server still not reached after %d attempts; Wi-Fi looks half dead - joining it again",
+                 server_failures_);
+        server_retry_at_us_ = 0;
+        wifi_rejoin_since_us_ = NowUs();
+        esp_wifi_disconnect();
+    } else {
+        ESP_LOGW(TAG, "Server not reached, also after joining Wi-Fi again; waiting for the next wake word");
+        server_failures_ = 0;
+        server_retry_at_us_ = 0;
+    }
+}
+
+void WallEBoard::CheckServerRetry(int64_t now) {
+    constexpr int64_t kSettleUs = 3LL * 1000 * 1000;    // after the rejoin: let DHCP and ARP settle
+    constexpr int64_t kRejoinMaxUs = 45LL * 1000 * 1000;
+    if (wifi_rejoin_since_us_ != 0) {
+        if (network_connected_ && WifiManager::GetInstance().IsConnected() && now - wifi_rejoin_since_us_ > kSettleUs) {
+            ESP_LOGI(TAG, "Wi-Fi joined again; trying the server once more");
+            wifi_rejoin_since_us_ = 0;
+            server_retry_at_us_ = now + 2LL * 1000 * 1000;
+        } else if (now - wifi_rejoin_since_us_ > kRejoinMaxUs) {
+            ESP_LOGW(TAG, "Wi-Fi not back within 45 s; leaving it to the normal reconnect");
+            wifi_rejoin_since_us_ = 0;
+            server_failures_ = 0;
+        }
+    }
+    if (server_retry_at_us_ == 0 || now < server_retry_at_us_) {
+        return;
+    }
+    server_retry_at_us_ = 0;
+    if (state_ != kDeviceStateIdle || napping_ || pending_nap_ || pending_deep_sleep_ || ringing_) {
+        server_failures_ = 0;   // something else is going on (a new wake word, a nap): no retry over it
+        return;
+    }
+    ESP_LOGI(TAG, "Trying the server again (attempt %d)", server_failures_ + 1);
+    Application::GetInstance().ToggleChatState();   // idle -> connecting -> listening, like a button press
+}
+
 void WallEBoard::CheckWifiSetupTimeout(int64_t now) {
     // Upstream keeps the setup hotspot open until a network is saved or Exit is tapped. Leave it
     // after 2 minutes with nobody connected to it, or 10 minutes in total, and go back to the
@@ -862,6 +928,7 @@ void WallEBoard::Tick() {
     ApplyVolumeCap();
     const int64_t now = NowUs();
     CheckWifiSetupTimeout(now);
+    CheckServerRetry(now);
 
     if (ringing_) {
         if (now > ring_until_us_) {

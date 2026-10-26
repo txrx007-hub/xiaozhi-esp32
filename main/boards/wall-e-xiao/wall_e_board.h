@@ -138,4 +138,14 @@ private:
     int64_t wifi_setup_client_us_ = 0;
     int applied_volume_cap_ = -1;
     std::string weather_line_;
+
+    // Server link recovery (OnServerConnectFailed, CheckServerRetry from Tick()). A wake word that ends in
+    // "Unable to connect to service" is tried again 5 s later, twice; when that fails too the Wi-Fi link is
+    // probably half dead (the robot still looks connected, but replies never arrive), so Wi-Fi is dropped and
+    // joined again, followed by one more try. Then it waits for the next wake word.
+    void OnServerConnectFailed();
+    void CheckServerRetry(int64_t now);
+    int server_failures_ = 0;
+    int64_t server_retry_at_us_ = 0;   // 0 = no retry planned
+    int64_t wifi_rejoin_since_us_ = 0; // 0 = not rejoining
 };

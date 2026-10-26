@@ -971,6 +971,12 @@ void WallEBoard::Tick() {
     CheckWifiSetupTimeout(now);
     CheckServerRetry(now);
 
+    // the mute icon follows the microphone, whoever muted it (page, app, console)
+    if (const bool muted = walle_codec()->mic_muted(); muted != mute_icon_on_) {
+        mute_icon_on_ = muted;
+        display_->SetMuteIcon(muted);
+    }
+
     if (ringing_) {
         if (now > ring_until_us_) {
             StopRinging();

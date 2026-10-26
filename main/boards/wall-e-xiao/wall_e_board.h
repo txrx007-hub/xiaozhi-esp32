@@ -143,6 +143,7 @@ private:
     int64_t wifi_setup_client_us_ = 0;
     int applied_volume_cap_ = -1;
     std::string weather_line_;
+    bool mute_icon_on_ = false;
 
     // Server link recovery (OnServerConnectFailed, CheckServerRetry from Tick()). A wake word that ends in
     // "Unable to connect to service" is tried again 5 s later, twice; when that fails too the Wi-Fi link is

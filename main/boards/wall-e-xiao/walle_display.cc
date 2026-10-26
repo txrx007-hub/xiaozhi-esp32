@@ -289,6 +289,7 @@ void WalleDisplay::SetupUI() {
     CreateVisuals();
     CreateClock();
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
+    CreateMuteIcon();
     lv_timer_create(
         [](lv_timer_t* t) { static_cast<WalleDisplay*>(lv_timer_get_user_data(t))->UpdateRibbon(); },
         40, this);
@@ -1064,6 +1065,69 @@ void WalleDisplay::SetStatusDot(Dot dot) {
     }
 }
 
+void WalleDisplay::CreateMuteIcon() {
+    // Drawn from boxes and lines, no font: the theme's icon font can be swapped out later (see CreateClock()).
+    // 16x16, centred on the status dot's line (dot: y 6..16): a microphone with a slash, the slash on a black edge so it reads over the capsule.
+    constexpr uint32_t kRed = 0xef4444;
+    mute_icon_ = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(mute_icon_);
+    lv_obj_set_size(mute_icon_, 16, 16);
+    lv_obj_remove_flag(mute_icon_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(mute_icon_, LV_OBJ_FLAG_CLICKABLE);
+    MakeBox(mute_icon_, 5, 0, 6, 10, kRed, 3);   // capsule
+    MakeBox(mute_icon_, 7, 11, 2, 3, kRed, 0);   // stem
+    MakeBox(mute_icon_, 4, 14, 8, 2, kRed, 1);   // foot
+    static const lv_point_precise_t kSlash[] = {{1, 1}, {15, 15}};
+    for (int pass = 0; pass < 2; ++pass) {
+        lv_obj_t* line = lv_line_create(mute_icon_);
+        lv_line_set_points(line, kSlash, 2);
+        lv_obj_set_style_line_width(line, pass == 0 ? 4 : 2, 0);
+        lv_obj_set_style_line_color(line, lv_color_hex(pass == 0 ? 0x000000 : kRed), 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+    }
+    // slow blink: fades out and back in, 1.2 s each way
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, mute_icon_);
+    lv_anim_set_values(&a, LV_OPA_COVER, LV_OPA_10);
+    lv_anim_set_duration(&a, 1200);
+    lv_anim_set_reverse_duration(&a, 1200);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&a, [](void* obj, int32_t v) { lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), v, 0); });
+    lv_anim_start(&a);
+    lv_obj_add_flag(mute_icon_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void WalleDisplay::PlaceMuteIcon() {
+    if (mute_icon_ == nullptr) {
+        return;
+    }
+    int x = 6;
+    if (!clock_shown_ && network_label_ != nullptr) {   // the eyes keep the stock top bar: its Wi-Fi icon sits at the left edge
+        lv_area_t a;
+        lv_obj_get_coords(network_label_, &a);
+        if (a.x2 > 0 && a.x2 < width_ / 2) {
+            x = a.x2 + 6;
+        }
+    }
+    lv_obj_set_pos(mute_icon_, x, 3);
+    lv_obj_move_foreground(mute_icon_);
+}
+
+void WalleDisplay::SetMuteIcon(bool on) {
+    DisplayLockGuard lock(this);
+    mute_on_ = on;
+    if (mute_icon_ == nullptr) {
+        return;
+    }
+    if (on) {
+        PlaceMuteIcon();
+        lv_obj_remove_flag(mute_icon_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(mute_icon_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void WalleDisplay::CreateClock() {
     // Deliberately NOT theme->text_font(): that raw lv_font_t* can be swapped out from under us
     // later (LvglDisplay::SetTextFont() rebinds every style IT tracks when the font changes, but
@@ -1242,8 +1306,11 @@ void WalleDisplay::ShowIdleClock(bool show) {
         } else {
             lv_obj_add_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
         }
+        clock_shown_ = show;
+        if (mute_on_) {
+            PlaceMuteIcon();   // over the clock too, and back beside the Wi-Fi icon on the eyes
+        }
     }
-    clock_shown_ = show;
     clock_last_minute_ = -1;
     if (show) {
         RefreshIdleClock();

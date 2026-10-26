@@ -49,6 +49,9 @@ public:
     bool IsBlank() const { return blank_; }
 
     void SetStatusDot(Dot dot);
+    // Small red crossed-out microphone at the top left, slowly blinking, while the microphone is muted; on the eyes and on the idle clock,
+    // level with the status dot (on the eyes just right of the Wi-Fi icon).
+    void SetMuteIcon(bool on);
 
     // Idle clock: big HH:MM, date, optional weather line and the wake word hint.
     void ShowIdleClock(bool show);
@@ -153,6 +156,10 @@ private:
     bool blank_ = false;
 
     lv_obj_t* status_dot_ = nullptr;
+    lv_obj_t* mute_icon_ = nullptr;
+    bool mute_on_ = false;
+    void CreateMuteIcon();
+    void PlaceMuteIcon();  // left edge on the clock, right of the Wi-Fi icon on the eyes; on top of the layer
     lv_obj_t* ribbon_ = nullptr;
     lv_obj_t* ribbon_bars_[kRibbonBars] = {};
     int ribbon_history_[kRibbonBars] = {};

@@ -4,7 +4,7 @@
     python make_boot_gif.py <picture> [--steps 24] [--frame-ms 60]        (needs Pillow)
 
 The picture (any size or shape) is cut to a square around its brightest red spot - a glowing eye - and turned into a 240 x 240 loop in which that
-red glow dims to off and lights up again: lit, fading out, dark, fading back in. Only the glow changes, so the GIF stays small (about 250 KB).
+red glow lights up from off and dims again: dark, fading in, lit, fading out. Only the glow changes, so the GIF stays small (about 250 KB).
 
 boot.gif is NOT in git (the pictures are not mine to publish): without it the firmware still builds and boots with the normal screen.
 After making or removing it, build again (the build checks for the file).
@@ -62,8 +62,9 @@ def main():
         return img
 
     n = args.steps
-    levels = ([1.0] * 10 + [0.5 + 0.5 * math.cos(math.pi * i / n) for i in range(1, n)]
-              + [0.0] * 6 + [0.5 - 0.5 * math.cos(math.pi * i / n) for i in range(1, n)])
+    # starts dark, then the eye lights up red, stays lit, and fades out again
+    levels = ([0.0] * 6 + [0.5 - 0.5 * math.cos(math.pi * i / n) for i in range(1, n)]
+              + [1.0] * 10 + [0.5 + 0.5 * math.cos(math.pi * i / n) for i in range(1, n)])
     frames = [frame(level) for level in levels]
     strip = Image.new("RGB", (SIZE, SIZE * len(frames)))
     for i, f in enumerate(frames):

@@ -71,6 +71,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.robot.move` / `turn` / `stop` | "drive forward for two seconds", "turn around", "stop" |
 | `self.robot.dance` | "do a little dance" (random, wiggle, spin, happy) |
 | `self.robot.look_around` | "look around the room" (4 photos, one 2x2 collage, one answer) |
+| `self.robot.face_me` | "look at me": a picture goes to the own server, which finds the face; Jarvis turns on the spot in up to three short full-power steps (duration by offset: `face_short_ms` / `face_mid_ms` / `face_long_ms`). Follow mode (`follow_mode`) repeats this while idle |
 | `self.screen.set_emotion` | "look sad", "what faces can you make?" (the emotion list is in the tool's own description) |
 | `self.audio.set_mic_gain` / `set_wake_threshold` / `get_tuning` | "make the microphone more sensitive", "wake up more easily" |
 | `self.settings.list` / `get` / `set` / `reset` | "you drift to the left", "set quiet hours from 22:00 to 07:00" |
@@ -200,7 +201,20 @@ motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mo
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-visualizer_mode off · log_level warn.
+visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 · follow_mode 0 (always off after a restart) · follow_ms 1000 ·
+face_short_ms 200 · face_mid_ms 350 · face_long_ms 700 · face_invert 0.
+
+### Turning towards a face, follow mode, talking movements (`walle_track.cc`)
+
+Everything here drives the wheels only, always in place. **Turn to face me** (`self.robot.face_me`, the page's *Face me* button, 
+"look at me"): one picture goes to `POST /mcp/vision/face` on the own server (OpenCV finds the biggest face), the answer is the face's 
+offset from the middle of the picture (-1 left edge .. +1 right edge). Below 12% Jarvis is already facing you; otherwise it turns at full power 
+for `face_short_ms` (12-30%), `face_mid_ms` (30-55%) or `face_long_ms` (over 55%), looks again, and repeats up to three times. 
+A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app) 
+does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks 
+less often after five empty looks. It is switched off at every start. **Talking movements** (`talk_motion`): while Jarvis speaks, every 2-4.5 s 
+a quick left-right shake at `talk_power` percent, matched to the current emotion (lively for happy ones, slow and small for sad ones, a glance 
+to one side for thinking); never during music or radio, a nap, a photo or a follow look.
 
 ## Changes outside this folder (all marked `WALL-E`)
 
@@ -359,7 +373,7 @@ visualizer_mode off · log_level warn.
   ENFILE-style failures ever come back, check whether this number needs to go up again before
   reaching for another point patch.
 - xiaozhi.me caps a device at 32 registered MCP tools (not enforced by this firmware - the cloud
-  side rejects a bigger tools/list). Currently at 28 (5 upstream + 23 here): mind that headroom
+  side rejects a bigger tools/list). Currently at 29 (5 upstream + 24 here): mind that headroom
   before adding another voice tool, and prefer folding a new action into an existing tool's
   parameters over adding a whole new one.
 - How long Jarvis stays listening after the wake word before giving up on silence is decided by

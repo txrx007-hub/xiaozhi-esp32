@@ -37,6 +37,13 @@ public:
     // Shows an emotion for hold_ms, then returns to the latest automatic emotion.
     void HoldEmotion(const std::string& emotion, int hold_ms);
     const std::string& auto_emotion() const { return auto_emotion_; }
+    // A copy taken under the lock, for other tasks (the talking movements pick their style by it).
+    std::string AutoEmotionCopy() {
+        std::lock_guard<std::mutex> lock(emotion_mutex_);
+        return auto_emotion_;
+    }
+    // True while music or radio is playing (the "tts start" mark); Jarvis stays still then.
+    bool MusicPlaying() const { return music_visual_.load(); }
 
     // The next camera preview is dropped (the surprised face is the photo cue).
     void SuppressNextPreview(bool on = true) { suppress_preview_ = on; }

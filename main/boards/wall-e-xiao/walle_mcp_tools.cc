@@ -17,6 +17,7 @@
 #include "walle_diagnostics.h"
 #include "walle_settings.h"
 #include "walle_timers.h"
+#include "walle_track.h"
 #include "walle_weather.h"
 #include "walle_web.h"
 
@@ -147,6 +148,19 @@ void RegisterWalleTools(WallEBoard& board) {
                     }
                     return "Turning " + std::string(degrees > 0 ? "right " : "left ") +
                            std::to_string(std::abs(degrees)) + " degrees.";
+                });
+
+    mcp.AddTool("self.robot.face_me",
+                "Turn towards the user: takes a picture, finds their face and turns the wheels in up to three short steps until Jarvis faces them (about 5 s). Use for 'look at me', 'face me', 'turn to me', 'kijk naar mij'. The user must be in front of the camera. To keep turning after the user as they move, set the setting follow_mode to 1 with self.settings.set (0 to stop).",
+                PropertyList(), [](const PropertyList&) -> ToolResult {
+                    auto& board = WallEBoard::Get();
+                    board.ExitNap();
+                    TaskPriorityReset priority_reset(1);
+                    auto result = walle_track::FaceMe();
+                    if (!result) {
+                        return std::unexpected(result.error());
+                    }
+                    return *result;
                 });
 
     mcp.AddTool("self.robot.stop", "Stop Jarvis's wheels immediately and cancel queued moves.",

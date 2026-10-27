@@ -34,6 +34,7 @@
 #include "walle_health.h"
 #include "walle_server.h"
 #include "walle_settings.h"
+#include "walle_track.h"
 #include "wifi_manager.h"
 
 #define TAG "WalleWeb"
@@ -246,6 +247,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
+    cJSON_AddBoolToObject(root, "follow", WalleSettings::GetInstance().GetBool("follow_mode"));   // follow mode: the toggle of the page and the app
     cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());
     cJSON_AddNumberToObject(root, "fps", board.walle_display() != nullptr ? board.walle_display()->Fps() : 0);
     cJSON_AddNumberToObject(
@@ -418,6 +420,28 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         });
         cJSON_AddBoolToObject(out, "ok", true);
         cJSON_AddStringToObject(out, "message", on ? "Muted: the microphone is off until you unmute." : "Unmuted: listening again.");
+    } else if (strcmp(action, "follow_on") == 0 || strcmp(action, "follow_off") == 0) {
+        const bool on = strcmp(action, "follow_on") == 0;
+        if (on && !walle_server::IsCustom()) {
+            cJSON_AddBoolToObject(out, "ok", false);
+            cJSON_AddStringToObject(out, "message", "Follow mode needs your own voice server.");
+        } else {
+            WalleSettings::GetInstance().Set("follow_mode", on ? "1" : "0");
+            cJSON_AddBoolToObject(out, "ok", true);
+            cJSON_AddStringToObject(out, "message", on ? "Follow mode on: Jarvis turns towards your face." : "Follow mode off.");
+        }
+    } else if (strcmp(action, "face") == 0) {
+        if (!walle_server::IsCustom()) {
+            cJSON_AddBoolToObject(out, "ok", false);
+            cJSON_AddStringToObject(out, "message", "Turning to your face needs your own voice server.");
+        } else {
+            Application::GetInstance().Schedule([]() {
+                WallEBoard::Get().ExitNap();   // main task
+                walle_track::FaceMeLater();
+            });
+            cJSON_AddBoolToObject(out, "ok", true);
+            cJSON_AddStringToObject(out, "message", "Looking for your face.");
+        }
     } else if (strcmp(action, "deepsleep") == 0) {
         const int minutes = atoi(minutes_param);
         if (minutes < 0 || minutes > 1440) {
@@ -437,7 +461,7 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         cJSON_AddStringToObject(out, "message", minutes > 0 ? "Deep sleep in 2 s." : "Deep sleep in 2 s, until the BOOT button.");
     } else {
         cJSON_Delete(out);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute or unmute");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute, unmute, follow_on, follow_off or face");
         return ESP_FAIL;
     }
     return SendJson(req, out);

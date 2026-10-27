@@ -26,6 +26,7 @@
 #include "walle_sounds.h"
 #include "walle_spectrum.h"
 #include "walle_timers.h"
+#include "walle_track.h"
 #include "walle_weather.h"
 #include "walle_web.h"
 #include "ssid_manager.h"
@@ -90,6 +91,7 @@ WallEBoard::WallEBoard() : boot_button_(BOOT_BUTTON_GPIO) {
     WalleTimers::GetInstance().OnFire([this](const std::string& label) { StartRinging(label); });
 
     RegisterWalleTools(*this);
+    walle_track::Start();
     InitializeIdleClock();
 
     esp_timer_create_args_t tick = {};
@@ -722,6 +724,8 @@ void WallEBoard::ApplySetting(const std::string& key) {
         if (camera_ != nullptr) {
             camera_->SetSaturation(settings.GetInt("camera_saturation"));
         }
+    } else if (key == "follow_mode") {
+        walle_track::Wake();
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,
                                                   ESP_LOG_DEBUG};
@@ -976,6 +980,8 @@ void WallEBoard::Tick() {
         mute_icon_on_ = muted;
         display_->SetMuteIcon(muted);
     }
+
+    walle_track::TalkTick();   // a quick shake now and then while Jarvis speaks
 
     if (ringing_) {
         if (now > ring_until_us_) {

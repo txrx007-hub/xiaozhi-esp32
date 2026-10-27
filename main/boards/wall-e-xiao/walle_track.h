@@ -6,7 +6,7 @@
 // Turning towards a face, and the small body movements while Jarvis talks. All of it drives the wheels only (no neck).
 //
 // A look is one picture sent to the own server (POST /mcp/vision/face on the OTA address' host), which answers where the biggest face is.
-// The correction is always at full power and only its duration changes (face_short_ms / face_mid_ms / face_long_ms, picked by how far off-centre the face is).
+// The correction is at face_power (full power by default) and only its duration changes (face_short_ms / face_mid_ms / face_long_ms, picked by how far off-centre the face is).
 //   FaceMe()   one-shot "look at me": up to three looks, each followed by a correction, until the face is in the middle.
 //   follow     the follow_mode setting: a background task repeats a look every follow_ms while Jarvis is idle.
 //   TalkTick() once a second while Jarvis speaks: now and then a quick left-right shake, matched to the current emotion.

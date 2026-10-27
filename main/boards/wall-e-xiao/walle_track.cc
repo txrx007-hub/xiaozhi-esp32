@@ -77,13 +77,13 @@ int Damped(int ms, int direction) {
     return ms;
 }
 
-// Turns in place at full power for ms. +1 = right, -1 = left. False if the move was stopped.
+// Turns in place at face_power (100% by default) for ms. +1 = right, -1 = left. False if the move was stopped.
 bool Pulse(int direction, int ms) {
     auto& board = WallEBoard::Get();
     if (WalleSettings::GetInstance().GetBool("face_invert")) {
         direction = -direction;
     }
-    const int power = 100 * direction;
+    const int power = WalleSettings::GetInstance().GetInt("face_power") * direction;   // 100 unless the slider says otherwise; read at every turn, so it works live
     return board.motors().RunAndWait({{power, -power, ms}}, ms + 2000);
 }
 

@@ -22,6 +22,7 @@
 #include "walle_console.h"
 #include "walle_mcp_tools.h"
 #include "walle_server.h"
+#include "walle_revision.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
 #include "walle_spectrum.h"
@@ -817,7 +818,7 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
     if (now == kDeviceStateIdle) {
         if (!log_level_applied_) {
             log_level_applied_ = true;  // full log during boot, then the chosen level
-            ESP_LOGI(TAG, "Jarvis is ready; log level now %s",
+            ESP_LOGI(TAG, "Jarvis is ready (revision %d); log level now %s", WALLE_REVISION,
                      WalleSettings::GetInstance()
                          .FormatCurrent(*WalleSettings::GetInstance().Find("log_level"))
                          .c_str());

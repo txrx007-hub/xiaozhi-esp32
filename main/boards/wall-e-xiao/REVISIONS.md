@@ -1,0 +1,24 @@
+# Revisions
+
+One number for the whole project. The **revision** goes up by one with every firmware build that is archived (`walle-backup\builds\<n>-<label>`), and every
+git repository of the project carries a tag `rev-<n>` at the commit that belongs to it. The number is built into the firmware (`walle_revision.h`,
+`WALLE_REVISION`), reported as `revision` in `/api/status`, shown as **Revision** on the landing page and in the app's Info table, and printed in the boot log
+(`Jarvis is ready (revision 86)`).
+
+The app and the backend keep their own version names (app `versionName`, backend snapshot folders); this table says which of them went with which revision.
+
+| Revision | Date | What | App | Landing page / backend |
+|---|---|---|---|---|
+| 86 | 2026-10-28 | After-turn looks take three camera frames (the first one was stale and blurred, "turned, but cannot see your face"); steadier turning-speed learning; revision numbering | 2.36 | tags `rev-86` |
+| 85 | 2026-10-28 | The robot works out the face turn from a learned turning speed; "look at me" searches when no face is in view, four centring steps at most; `face_deadzone` | 2.36 | |
+| 84 | 2026-10-28 | Faster follow looks (first frame, no screen preview) | 2.34 | |
+| 83 | 2026-10-28 | HTTP client use-after-free fix (crash after 49 minutes of follow mode); `follow_ms` from 100 ms | 2.34 | |
+| 82 | 2026-10-28 | Face turns swapped left/right by default; failed photos are retried and say why | 2.34 | |
+| 81 | 2026-10-27 | Turn to face me, follow mode, talking movements; Smart turn on the server; memory fixes | 2.33 | |
+| 80 and older | | see `CHANGELOG.md` (phases 1-10) | | |
+
+## How to add one
+
+1. Raise `WALLE_REVISION` in `walle_revision.h`, build, archive with `walle-backup\save-build.ps1 -Label "<n>-<what>"` (the archive number must equal the revision).
+2. Add a row here and a section in `CHANGELOG.md`.
+3. Commit in every repository that changed, then `git tag rev-<n>` in all four (firmware, `android`, `web`, backend) and push the tags with the branches.

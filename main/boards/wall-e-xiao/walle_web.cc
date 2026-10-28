@@ -32,6 +32,7 @@
 #include "wall_e_board.h"
 #include "walle_camera.h"
 #include "walle_health.h"
+#include "walle_revision.h"
 #include "walle_server.h"
 #include "walle_settings.h"
 #include "walle_track.h"
@@ -219,6 +220,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     auto& wifi = WifiManager::GetInstance();
     cJSON* root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "board", SystemInfo::GetUserAgent().c_str());
+    cJSON_AddNumberToObject(root, "revision", WALLE_REVISION);
     cJSON_AddStringToObject(root, "board_name", "ESP32 S3 Sense");
     auto* camera = board.walle_camera();
     cJSON_AddBoolToObject(root, "camera_detected", camera != nullptr && camera->Detected());
@@ -548,7 +550,7 @@ void PhotoTask(void* arg) {
     if (job->live) {
         board.walle_display()->SuppressNextPreview();  // no picture over the robot's face for every frame
     }
-    const bool ok = camera != nullptr && camera->CaptureJpeg(job->live ? 55 : 75, &jpeg, &jpeg_len, job->live);
+    const bool ok = camera != nullptr && camera->CaptureJpeg(job->live ? 55 : 75, &jpeg, &jpeg_len, job->live ? 1 : 3, !job->live);
     if (job->live) {
         board.walle_display()->SuppressNextPreview(false);  // a failed capture must not swallow the next real preview
     }

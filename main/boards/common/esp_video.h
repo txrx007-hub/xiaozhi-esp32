@@ -47,8 +47,8 @@ private:
     std::thread encoder_thread_;
     std::mutex capture_mutex_;  // WALL-E: serializes Capture() and ProbeFrame() on video_fd_
     const char* capture_error_ = "";
-    bool CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, bool fast);
-    bool CaptureImpl(bool fast);
+    bool CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, int frames, bool preview);
+    bool CaptureImpl(int frames, bool preview);
     void Open(const esp_video_init_config_t& config);   // WALL-E: constructor / Restart()
     void Close();                                       // WALL-E: destructor / Restart()
 
@@ -66,7 +66,9 @@ public:
     bool Restart(const esp_video_init_config_t& config, int pause_ms = 200);
     // WALL-E: one picture as a JPEG for the settings page's Camera button: no sound, no analysis, nothing sent anywhere. On success *out is the
     // JPEG (allocated here, the caller frees it with heap_caps_free) and *out_len its size.
-    bool CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, bool fast = false);
+    // frames = how many camera frames are taken before the one that is used (the buffers hold older ones: the first frame can be from before the camera moved);
+    // preview = also show it on the robot's screen (only with the default 3 frames).
+    bool CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, int frames = 3, bool preview = true);
     // WALL-E: why the last CaptureJpeg() failed, in words for the page and the log ("" after a success).
     const char* CaptureError() const { return capture_error_; }
     // WALL-E: the sensor's auto-exposure target (V4L2_CID_CAMERA_AE_LEVEL, -5..5, 0 = sensor default): higher = brighter pictures.

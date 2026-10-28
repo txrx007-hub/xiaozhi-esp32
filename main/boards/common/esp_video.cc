@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <sys/param.h>
 #include <unistd.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -507,12 +508,12 @@ bool EspVideo::ProbeFrame() {
 
 // A picture that did not come out is tried once more after a short pause: the first failure is usually a short memory squeeze (the PSRAM is
 // fragmented after hours of running) or a damaged frame. CaptureError() says what went wrong; the log has the memory figures.
-bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, bool fast) {
+bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, int frames, bool preview) {
     for (int attempt = 1; attempt <= 2; ++attempt) {
         if (attempt > 1) {
             vTaskDelay(pdMS_TO_TICKS(300));
         }
-        if (CaptureJpegOnce(quality, out, out_len, fast)) {
+        if (CaptureJpegOnce(quality, out, out_len, frames, preview)) {
             return true;
         }
         ESP_LOGW(TAG, "CaptureJpeg attempt %d failed: %s (PSRAM free %u KB, largest block %u KB, internal largest %u KB)", attempt, capture_error_,
@@ -523,11 +524,11 @@ bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, bool
     return false;
 }
 
-bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, bool fast) {
+bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, int frames, bool preview) {
     *out = nullptr;
     *out_len = 0;
     capture_error_ = "no frame from the camera";
-    if (!CaptureImpl(fast)) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo (not in fast mode)
+    if (!CaptureImpl(frames, preview)) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo (not in fast mode)
         return false;
     }
     // The frame is encoded where it lies, under the lock (another capture would replace it the moment the lock is free): a private copy would
@@ -556,11 +557,12 @@ bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, 
     return true;
 }
 
-bool EspVideo::Capture() { return CaptureImpl(false); }
+bool EspVideo::Capture() { return CaptureImpl(3, true); }
 
-// fast = for the follow mode and the live view, where the camera has been streaming all along: the first frame is taken (not the third) and no
-// preview is made for the screen. That saves about two frame times and the colour conversion of the preview, nobody sees either.
-bool EspVideo::CaptureImpl(bool fast) {
+// frames: the number of frames taken, the last one is used. The queue holds older frames (filled while nobody asked): right after the camera has moved the
+// first one is from before or during the move (blurred, or the old view), so a look after a turn takes all three. Between turns of the follow mode one is enough.
+// preview = false: nothing is made for the screen (saves the colour conversion of the preview, which nobody sees in a look).
+bool EspVideo::CaptureImpl(int frames, bool preview) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
@@ -572,7 +574,7 @@ bool EspVideo::CaptureImpl(bool fast) {
         return false;
     }
 
-    const int take = fast ? 1 : 3;
+    const int take = std::clamp(frames, 1, 3);
     for (int i = 0; i < take; i++) {
         struct v4l2_buffer buf = {};
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -924,7 +926,7 @@ bool EspVideo::CaptureImpl(bool fast) {
         }
     }
 
-    if (fast) {
+    if (!preview) {
         return true;
     }
     // 显示预览图片

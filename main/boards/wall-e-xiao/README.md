@@ -5,6 +5,9 @@
 Custom xiaozhi board for the Huy Vector Wall-E build (hardware only; his firmware is not used).
 The robot answers to **"Jarvis"** (WakeNet9 `wn9_jarvis_tts`).
 
+
+**Revision numbering:** every archived build is a numbered revision (`walle_revision.h`, `/api/status` field `revision`, tag `rev-<n>` in all repositories); the list is [REVISIONS.md](REVISIONS.md).
+
 ## Parts of the project
 
 This repository is the **firmware**. Two companion parts live in their own repositories and are included

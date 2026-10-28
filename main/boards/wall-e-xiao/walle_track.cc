@@ -56,6 +56,7 @@ int64_t g_last_turn_us = 0;
 int64_t g_next_talk_us = 0;
 std::unique_ptr<Http> g_retired;     // the previous look's HTTP client, freed only when the next look is done (see Look())
 float g_gain = kSeedGain;            // learned: picture widths (x units) per millisecond of turning at 100% power
+bool g_stale_view = false;           // the wheels turned since the last look: the camera queue still holds frames from before the turn
 int g_seen_side = 0;                 // which side the face was last seen on: -1 left, +1 right (where a search starts)
 
 // The turn that was just made, kept until the next look shows what it did.
@@ -107,7 +108,9 @@ bool Pulse(int direction, int ms, int percent) {
         direction = -direction;
     }
     const int power = percent * direction;
-    return board.motors().RunAndWait({{power, -power, ms}}, ms + 2000);
+    const bool done = board.motors().RunAndWait({{power, -power, ms}}, ms + 2000);
+    g_stale_view = true;
+    return done;
 }
 
 struct Plan {
@@ -140,17 +143,17 @@ void Learn(const Face& now) {
     }
     if (p.width > 0 && now.width > 0) {
         const float ratio = now.width / p.width;
-        if (ratio < 0.7f || ratio > 1.4f) {
+        if (ratio < 0.85f || ratio > 1.18f) {
             return;   // the person walked towards or away from the robot
         }
     }
     const float progress = (p.x_before - now.x) * (p.x_before > 0 ? 1.0f : -1.0f);   // how far the face came towards the middle
     const float observed = progress / (p.ms * p.power / 100.0f);
-    if (observed < 0.0002f || observed > 0.0030f) {
-        return;
+    if (observed < 0.5f * g_gain || observed > 1.6f * g_gain) {
+        return;   // far from what the robot knows: the person moved, or the picture was blurred
     }
     const float before = g_gain;
-    g_gain = std::clamp(0.7f * g_gain + 0.3f * observed, kMinGain, kMaxGain);
+    g_gain = std::clamp(0.8f * g_gain + 0.2f * observed, kMinGain, kMaxGain);
     ESP_LOGI(TAG, "Learned: the picture moved %.2f in %d ms at %d%%: turning speed %.5f -> %.5f per ms", progress, p.ms, p.power, before, g_gain);
 }
 
@@ -180,10 +183,12 @@ std::expected<Face, std::string> Look() {
     if (url.empty()) {
         return std::unexpected("Face finding needs your own voice server.");
     }
-    // fast capture: no preview is made for the screen at all, so nothing needs suppressing
+    // No preview for the screen. Right after a turn all three frames are taken: the first ones in the queue are from before or during the turn.
     uint8_t* jpeg = nullptr;
     size_t jpeg_len = 0;
-    if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len, true)) {
+    const int frames = g_stale_view ? 3 : 1;
+    g_stale_view = false;
+    if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len, frames, false)) {
         return std::unexpected(std::string("The camera did not take a picture: ") + camera->CaptureError());
     }
     std::string body(reinterpret_cast<const char*>(jpeg), jpeg_len);

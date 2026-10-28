@@ -98,7 +98,7 @@ WalleSettings::WalleSettings() {
          "keep turning towards your face (needs the own server; always off after a restart)"},
         {"face_power", Kind::kInt, 30, 100, 100,
          "power of the turns towards your face and of follow mode, in percent (100 = full power); live: change it while Jarvis tracks you"},
-        {"follow_ms", Kind::kInt, 400, 5000, 1000, "follow mode: pause between two looks, in milliseconds"},
+        {"follow_ms", Kind::kInt, 100, 5000, 1000, "follow mode: pause between two looks, in milliseconds"},
         {"face_short_ms", Kind::kInt, 100, 1500, 300, "turn towards your face: a small correction, in milliseconds at full power"},
         {"face_mid_ms", Kind::kInt, 100, 2000, 500, "turn towards your face: a medium correction, in milliseconds at full power"},
         {"face_long_ms", Kind::kInt, 100, 3000, 1000, "turn towards your face: a big correction, in milliseconds at full power"},

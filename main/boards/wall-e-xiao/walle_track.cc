@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <memory>
 #include <mutex>
 
 #include <cJSON.h>
@@ -44,6 +45,7 @@ TaskHandle_t g_task = nullptr;
 int g_last_direction = 0;            // -1 = turned left, +1 = turned right, 0 = unknown (forgotten after a pause)
 int64_t g_last_turn_us = 0;
 int64_t g_next_talk_us = 0;
+std::unique_ptr<Http> g_retired;     // the previous look's HTTP client, freed only when the next look is done (see Look())
 
 int64_t NowUs() { return esp_timer_get_time(); }
 
@@ -120,6 +122,13 @@ std::expected<Face, std::string> Look() {
         return std::unexpected("No network.");
     }
     auto http = network->CreateHttp(0);
+    // The HTTP client must outlive its network task: when the server closes the connection right after its answer, that task still calls back into
+    // the client a moment later, and a client freed by then crashed the robot (use after free, watchdog reset, after 49 minutes of follow mode).
+    // So each client is kept until the next look has used its own (g_mutex serialises the looks).
+    struct Retire {
+        std::unique_ptr<Http>& client;
+        ~Retire() { g_retired = std::move(client); }
+    } retire{http};
     http->SetTimeout(6000);
     http->SetHeader("Device-Id", SystemInfo::GetMacAddress());
     http->SetHeader("Content-Type", "image/jpeg");

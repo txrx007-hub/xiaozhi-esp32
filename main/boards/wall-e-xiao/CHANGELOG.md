@@ -191,6 +191,11 @@ App v2.28 (Peach theme, English / Dutch). The panel got the same theme and langu
 
 ---
 
+## Phase 11 · First real test of face and follow (build 82, 28 Oct)
+- **Robot turned away from the face**: the saved face pictures showed the offset growing after a turn (x 0.35 to 0.81). The camera picture is mirrored against the wheels, so `face_invert` is now **on by default**; with it, one turn took x from 0.35 to 0.01 and it stayed centred. (Applied live on the robot before the flash.)
+- **Photo error "the camera did not deliver a picture"** (seen after about 10 hours of running; no log of that moment, the robot was off USB): `CaptureJpeg` now encodes the frame in place instead of making a second 600 KB copy in PSRAM, tries a second time after 300 ms, logs the memory figures when it fails, and the web call and "look at me" answer with the reason. Not reproduced on a fresh robot (photos and looks work); the next failure will say why.
+- Landing page mock, API notes, backend notes and the app (v2.34, demo robot) follow the new default.
+
 ## Hardware limits that shaped the work
 - **Wi-Fi at the desk is about -81 dBm** and can go silent for minutes: it dominates latency more than any server setting. Fix with the signal, not the code.
 - **No echo cancellation** (the amplifier gives no reference signal): interrupt Jarvis by saying "Jarvis" or pressing BOOT; the full-duplex listen mode is not usable. A second robot with a microphone that has AEC is planned.
@@ -208,4 +213,4 @@ App v2.28 (Peach theme, English / Dutch). The panel got the same theme and langu
 
 ## Where everything is stored
 - **Git**: firmware repository (this file, `main/boards/wall-e-xiao/`), submodules `web` (landing page) and `android` (app), and the backend repository `xiaozhi-server/temp-test`. Nothing is published to GitHub without a clear yes and a scrub of private details first.
-- **Local backups** (`walle-backup/`): `builds/<n>-<label>` (bins, ELF, manifest with the flash command, source copy) for builds 1-81, `android-builds/` for app builds 1-v2.33 (debug APK, demo APK, checksums), `backend/<date>-<hash>` (snapshot of the tracked backend files), flash logs, incident reports, and a copy of this file.
+- **Local backups** (`walle-backup/`): `builds/<n>-<label>` (bins, ELF, manifest with the flash command, source copy) for builds 1-82, `android-builds/` for app builds 1-v2.34 (debug APK, demo APK, checksums), `backend/<date>-<hash>` (snapshot of the tracked backend files), flash logs, incident reports, and a copy of this file.

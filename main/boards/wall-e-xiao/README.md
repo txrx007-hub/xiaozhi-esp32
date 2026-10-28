@@ -71,7 +71,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 | `self.robot.move` / `turn` / `stop` | "drive forward for two seconds", "turn around", "stop" |
 | `self.robot.dance` | "do a little dance" (random, wiggle, spin, happy) |
 | `self.robot.look_around` | "look around the room" (4 photos, one 2x2 collage, one answer) |
-| `self.robot.face_me` | "look at me": a picture goes to the own server, which finds the face; Jarvis turns on the spot in up to three short full-power steps (duration by offset: `face_short_ms` / `face_mid_ms` / `face_long_ms`). Follow mode (`follow_mode`) repeats this while idle |
+| `self.robot.face_me` | "look at me": a picture goes to the own server, which finds the face; Jarvis turns on the spot (searching first if no face is in view) and centres the face in up to four steps; the length of each turn is worked out by the robot from the offset and its own learned turning speed. Follow mode (`follow_mode`) repeats this while idle |
 | `self.screen.set_emotion` | "look sad", "what faces can you make?" (the emotion list is in the tool's own description) |
 | `self.audio.set_mic_gain` / `set_wake_threshold` / `get_tuning` | "make the microphone more sensitive", "wake up more easily" |
 | `self.settings.list` / `get` / `set` / `reset` | "you drift to the left", "set quiet hours from 22:00 to 07:00" |
@@ -201,17 +201,19 @@ motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mo
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · face_fine_power 80 (80-100) · follow_ms 1000 ·
-face_short_ms 300 · face_mid_ms 500 · face_long_ms 1000 · face_invert 1 (the camera picture is mirrored against the wheels on this robot).
+visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · follow_ms 1000 (100-5000) ·
+face_invert 1 (the camera picture is mirrored against the wheels on this robot).
 
 ### Turning towards a face, follow mode, talking movements (`walle_track.cc`)
 
 Everything here drives the wheels only, always in place. **Turn to face me** (`self.robot.face_me`, the page's *Face me* button, 
 "look at me"): one picture goes to `POST /mcp/vision/face` on the own server (OpenCV finds the biggest face), the answer is the face's 
-offset from the middle of the picture (-1 left edge .. +1 right edge). Below the margin `face_deadzone` (18% by default) Jarvis is already facing you; otherwise it turns at `face_power`, small corrections (under 30%) at the gentler `face_fine_power` (80%), (100% unless the slider says otherwise; read at every turn, so it can be tuned live while Jarvis tracks you) 
-for `face_short_ms` (12-30%), `face_mid_ms` (30-55%) or `face_long_ms` (over 55%), looks again, and repeats up to three times. 
-A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app) 
-does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks 
+offset from the middle of the picture (-1 left edge .. +1 right edge). Within the margin `face_deadzone` (18% of half the picture by default) Jarvis is already facing you.
+Otherwise the **robot works out the turn itself**: the duration is the offset divided by the turning speed it has learned (after every turn the next look shows how far the picture really moved; an average of those measurements, kept in RAM, seeded with 0.0007 pictures per millisecond at 100%),
+aimed 15% short so it never overshoots, at `face_power` (100% by default) for big turns and 80% of it (never lower than 80) for corrections under 30%. It looks again and repeats up to four times.
+With **no face in view** the one-shot first searches: it turns on the spot (towards the side where a face was last seen, else right) in steps of about half the field of view, up to six, and looks after each; the first face found is then centred as above.
+A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app)
+does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks
 less often after five empty looks. It is switched off at every start. **Talking movements** (`talk_motion`): while Jarvis speaks, every 2-4.5 s 
 a quick left-right shake at `talk_power` percent, matched to the current emotion (lively for happy ones, slow and small for sad ones, a glance 
 to one side for thinking); never during music or radio, a nap, a photo or a follow look.

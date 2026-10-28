@@ -6,8 +6,9 @@
 // Turning towards a face, and the small body movements while Jarvis talks. All of it drives the wheels only (no neck).
 //
 // A look is one picture sent to the own server (POST /mcp/vision/face on the OTA address' host), which answers where the biggest face is.
-// The correction is at face_power (full power by default) and only its duration changes (face_short_ms / face_mid_ms / face_long_ms, picked by how far off-centre the face is).
-//   FaceMe()   one-shot "look at me": up to three looks, each followed by a correction, until the face is in the middle.
+// The turn is worked out by the robot: its duration follows from how far off-centre the face is and from the turning speed the robot has learned from its own
+// earlier turns; the power is face_power (80% for small corrections, never lower); the margin before it turns at all is face_deadzone.
+//   FaceMe()   one-shot "look at me": with no face in view it first turns on the spot to search (up to six steps); then up to four looks, each followed by a correction, until the face is in the middle.
 //   follow     the follow_mode setting: a background task repeats a look every follow_ms while Jarvis is idle.
 //   TalkTick() once a second while Jarvis speaks: now and then a quick left-right shake, matched to the current emotion.
 namespace walle_track {
@@ -26,8 +27,6 @@ void Wake();
 
 // One picture and one server round trip. Blocks for a second or two.
 std::expected<Face, std::string> Look();
-// The correction for an offset: 0 = the face is centred, else the short, medium or long duration in ms.
-int TurnMs(float x);
 // One-shot, blocking (about 3 to 8 s): returns what to tell the user.
 std::expected<std::string, std::string> FaceMe();
 // Same, but on the worker task (for the settings page and the app): returns at once.

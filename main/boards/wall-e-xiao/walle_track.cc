@@ -30,10 +30,20 @@ namespace walle_track {
 
 namespace {
 
-// Where the medium and big corrections begin, as a part of half the picture width (the margin before Jarvis turns at all is the setting face_deadzone).
+// The turn is worked out from the face's offset x (-1..+1 across the picture) and the robot's own turning speed, which it learns while it works
+// (g_gain: how far the picture shifts per millisecond of turning at full power). The margin before Jarvis turns at all is the setting face_deadzone,
+// the power of the big turns is face_power; corrections of less than kMedium use 80% of it (never lower).
 constexpr float kMedium = 0.30f;
-constexpr float kBig = 0.55f;
-constexpr int kMaxRounds = 3;
+constexpr int kSmallPower = 80;
+constexpr int kMaxRounds = 4;          // at most four centring steps for "look at me"
+constexpr int kSearchSteps = 6;        // "look at me" with no face in view: turn on the spot and look again, at most this many times
+constexpr float kSearchShift = 1.0f;   // each search step turns the picture by about this much (half the field of view)
+constexpr float kSeedGain = 0.0007f;   // measured on this robot at 100%: about 0.34 of the picture in 500 ms
+constexpr float kMinGain = 0.0003f;
+constexpr float kMaxGain = 0.0020f;
+constexpr float kUndershoot = 0.85f;   // aim a little short: the next look corrects the rest, and nothing overshoots
+constexpr int kMinPulseMs = 120;
+constexpr int kMaxPulseMs = 1500;
 constexpr int kSettleMs = 350;       // let the picture and the wheels calm down after a correction
 constexpr float kOvershoot = 0.6f;   // a correction against the previous one is this much shorter (the previous one went too far)
 
@@ -45,6 +55,18 @@ int g_last_direction = 0;            // -1 = turned left, +1 = turned right, 0 =
 int64_t g_last_turn_us = 0;
 int64_t g_next_talk_us = 0;
 std::unique_ptr<Http> g_retired;     // the previous look's HTTP client, freed only when the next look is done (see Look())
+float g_gain = kSeedGain;            // learned: picture widths (x units) per millisecond of turning at 100% power
+int g_seen_side = 0;                 // which side the face was last seen on: -1 left, +1 right (where a search starts)
+
+// The turn that was just made, kept until the next look shows what it did.
+struct Pending {
+    bool valid = false;
+    float x_before = 0;
+    float width = 0;
+    int ms = 0;
+    int power = 100;
+    int64_t end_us = 0;
+} g_pending;
 
 int64_t NowUs() { return esp_timer_get_time(); }
 
@@ -78,16 +100,70 @@ int Damped(int ms, int direction) {
     return ms;
 }
 
-// Turns in place at face_power (100% by default; small corrections at face_fine_power) for ms. +1 = right, -1 = left. False if the move was stopped.
-bool Pulse(int direction, int ms, bool fine) {
+// Turns in place at the given power (percent) for ms. +1 = towards what is on the right of the picture, -1 = left. False if the move was stopped.
+bool Pulse(int direction, int ms, int percent) {
     auto& board = WallEBoard::Get();
     if (WalleSettings::GetInstance().GetBool("face_invert")) {
         direction = -direction;
     }
-    auto& settings = WalleSettings::GetInstance();
-    const int percent = settings.GetInt(fine ? "face_fine_power" : "face_power");   // small corrections have their own power, 80-100
-    const int power = percent * direction;   // read at every turn, so the sliders work live
+    const int power = percent * direction;
     return board.motors().RunAndWait({{power, -power, ms}}, ms + 2000);
+}
+
+struct Plan {
+    int ms = 0;      // 0 = the face is within the margin: no turn
+    int power = 0;
+};
+
+Plan PlanTurn(float x) {
+    auto& settings = WalleSettings::GetInstance();
+    const float a = std::fabs(x);
+    if (a < settings.GetInt("face_deadzone") / 100.0f) {
+        return {};
+    }
+    const int cap = settings.GetInt("face_power");
+    const int power = a < kMedium ? std::min(cap, kSmallPower) : cap;
+    const float per_ms = g_gain * power / 100.0f;
+    const int ms = std::clamp(static_cast<int>(a / per_ms * kUndershoot), kMinPulseMs, kMaxPulseMs);
+    return {ms, power};
+}
+
+// A look after a turn shows how far that turn really moved the picture: that corrects the robot's idea of its own turning speed.
+void Learn(const Face& now) {
+    if (!g_pending.valid) {
+        return;
+    }
+    const Pending p = g_pending;
+    g_pending.valid = false;
+    if (!now.found || NowUs() - p.end_us > 2500LL * 1000 || p.ms < 150 || std::fabs(p.x_before) < 0.2f) {
+        return;   // no face, too long after the turn (the person may have moved), or too small to measure
+    }
+    if (p.width > 0 && now.width > 0) {
+        const float ratio = now.width / p.width;
+        if (ratio < 0.7f || ratio > 1.4f) {
+            return;   // the person walked towards or away from the robot
+        }
+    }
+    const float progress = (p.x_before - now.x) * (p.x_before > 0 ? 1.0f : -1.0f);   // how far the face came towards the middle
+    const float observed = progress / (p.ms * p.power / 100.0f);
+    if (observed < 0.0002f || observed > 0.0030f) {
+        return;
+    }
+    const float before = g_gain;
+    g_gain = std::clamp(0.7f * g_gain + 0.3f * observed, kMinGain, kMaxGain);
+    ESP_LOGI(TAG, "Learned: the picture moved %.2f in %d ms at %d%%: turning speed %.5f -> %.5f per ms", progress, p.ms, p.power, before, g_gain);
+}
+
+// Makes the turn for a face at x. Returns false if the move was stopped.
+bool Turn(const Face& face, const Plan& plan) {
+    const int direction = face.x > 0 ? 1 : -1;
+    const int ms = Damped(plan.ms, direction);
+    if (!Pulse(direction, ms, plan.power)) {
+        return false;
+    }
+    g_pending = {true, face.x, face.width, ms, plan.power, NowUs()};
+    g_seen_side = direction;
+    return true;
 }
 
 }  // namespace
@@ -163,21 +239,6 @@ std::expected<Face, std::string> Look() {
     return face;
 }
 
-int TurnMs(float x) {
-    const float a = std::fabs(x);
-    auto& settings = WalleSettings::GetInstance();
-    if (a < settings.GetInt("face_deadzone") / 100.0f) {
-        return 0;
-    }
-    if (a < kMedium) {
-        return settings.GetInt("face_short_ms");
-    }
-    if (a < kBig) {
-        return settings.GetInt("face_mid_ms");
-    }
-    return settings.GetInt("face_long_ms");
-}
-
 std::expected<std::string, std::string> FaceMe() {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_busy = true;
@@ -187,31 +248,47 @@ std::expected<std::string, std::string> FaceMe() {
 
     // (the caller wakes Jarvis from a nap first: that must happen on the main task)
     g_last_direction = 0;
-    bool turned = false;
-    for (int round = 0; round < kMaxRounds; ++round) {
+    g_pending.valid = false;
+    int centring = 0;
+    int searching = 0;
+    while (true) {
         auto face = Look();
         if (!face) {
             return std::unexpected(face.error());
         }
+        Learn(*face);
         if (!face->found) {
-            if (turned) {
+            if (centring > 0) {
                 return std::string("I turned, but now I cannot see your face. Step in front of me.");
             }
-            return std::string("I cannot see a face. Step in front of me, in the light, and ask again.");
+            if (searching >= kSearchSteps) {
+                return std::string("I looked all around but I cannot see a face. Step in front of me, in the light, and ask again.");
+            }
+            // Nobody in view: turn on the spot (towards the side where a face was last seen, else to the right) and look again.
+            ++searching;
+            const int ms = std::clamp(static_cast<int>(kSearchShift / g_gain), 500, 1800);
+            ESP_LOGI(TAG, "No face in view: searching, step %d of %d (%d ms)", searching, kSearchSteps, ms);
+            if (!Pulse(g_seen_side != 0 ? g_seen_side : 1, ms, WalleSettings::GetInstance().GetInt("face_power"))) {
+                return std::unexpected("Stopped while turning.");
+            }
+            vTaskDelay(pdMS_TO_TICKS(kSettleMs));
+            continue;
         }
-        const int ms = TurnMs(face->x);
-        ESP_LOGI(TAG, "Face at %.2f (width %.2f, %d seen): %d ms", face->x, face->width, face->count, ms);
-        if (ms == 0) {
-            return std::string(turned ? "I am facing you now." : "I am already facing you.");
+        g_seen_side = face->x > 0 ? 1 : -1;
+        const Plan plan = PlanTurn(face->x);
+        ESP_LOGI(TAG, "Face at %.2f (width %.2f, %d seen): %d ms at %d%%", face->x, face->width, face->count, plan.ms, plan.power);
+        if (plan.ms == 0) {
+            return std::string(centring > 0 || searching > 0 ? "I am facing you now." : "I am already facing you.");
         }
-        const int direction = face->x > 0 ? 1 : -1;
-        if (!Pulse(direction, Damped(ms, direction), std::fabs(face->x) < kMedium)) {
+        if (centring >= kMaxRounds) {
+            return std::string("I turned towards you.");
+        }
+        ++centring;
+        if (!Turn(*face, plan)) {
             return std::unexpected("Stopped while turning.");
         }
-        turned = true;
         vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     }
-    return std::string("I turned towards you.");
 }
 
 namespace {
@@ -233,15 +310,15 @@ bool FollowStep() {
         ESP_LOGW(TAG, "Follow: %s", face.error().c_str());
         return false;
     }
+    Learn(*face);
     if (!face->found) {
         return false;
     }
-    const int ms = TurnMs(face->x);
-    if (ms == 0) {
+    const Plan plan = PlanTurn(face->x);
+    if (plan.ms == 0) {
         return true;
     }
-    const int direction = face->x > 0 ? 1 : -1;
-    Pulse(direction, Damped(ms, direction), std::fabs(face->x) < kMedium);
+    Turn(*face, plan);
     vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     return true;
 }

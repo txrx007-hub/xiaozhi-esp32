@@ -507,12 +507,12 @@ bool EspVideo::ProbeFrame() {
 
 // A picture that did not come out is tried once more after a short pause: the first failure is usually a short memory squeeze (the PSRAM is
 // fragmented after hours of running) or a damaged frame. CaptureError() says what went wrong; the log has the memory figures.
-bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len) {
+bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, bool fast) {
     for (int attempt = 1; attempt <= 2; ++attempt) {
         if (attempt > 1) {
             vTaskDelay(pdMS_TO_TICKS(300));
         }
-        if (CaptureJpegOnce(quality, out, out_len)) {
+        if (CaptureJpegOnce(quality, out, out_len, fast)) {
             return true;
         }
         ESP_LOGW(TAG, "CaptureJpeg attempt %d failed: %s (PSRAM free %u KB, largest block %u KB, internal largest %u KB)", attempt, capture_error_,
@@ -523,11 +523,11 @@ bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len) {
     return false;
 }
 
-bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len) {
+bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, bool fast) {
     *out = nullptr;
     *out_len = 0;
     capture_error_ = "no frame from the camera";
-    if (!EspVideo::Capture()) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo
+    if (!CaptureImpl(fast)) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo (not in fast mode)
         return false;
     }
     // The frame is encoded where it lies, under the lock (another capture would replace it the moment the lock is free): a private copy would
@@ -556,7 +556,11 @@ bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len) 
     return true;
 }
 
-bool EspVideo::Capture() {
+bool EspVideo::Capture() { return CaptureImpl(false); }
+
+// fast = for the follow mode and the live view, where the camera has been streaming all along: the first frame is taken (not the third) and no
+// preview is made for the screen. That saves about two frame times and the colour conversion of the preview, nobody sees either.
+bool EspVideo::CaptureImpl(bool fast) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
@@ -568,7 +572,8 @@ bool EspVideo::Capture() {
         return false;
     }
 
-    for (int i = 0; i < 3; i++) {
+    const int take = fast ? 1 : 3;
+    for (int i = 0; i < take; i++) {
         struct v4l2_buffer buf = {};
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = V4L2_MEMORY_MMAP;
@@ -576,7 +581,7 @@ bool EspVideo::Capture() {
             ESP_LOGE(TAG, "VIDIOC_DQBUF failed");
             return false;
         }
-        if (i == 2) {
+        if (i == take - 1) {
             // 保存帧副本到PSRAM
             if (frame_.data) {
                 heap_caps_free(frame_.data);
@@ -919,6 +924,9 @@ bool EspVideo::Capture() {
         }
     }
 
+    if (fast) {
+        return true;
+    }
     // 显示预览图片
     auto display = Board::GetInstance().GetDisplay();
     if (display != nullptr) {

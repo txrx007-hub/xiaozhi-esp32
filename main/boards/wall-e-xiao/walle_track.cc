@@ -103,15 +103,10 @@ std::expected<Face, std::string> Look() {
     if (url.empty()) {
         return std::unexpected("Face finding needs your own voice server.");
     }
-    if (auto* display = board.walle_display(); display != nullptr) {
-        display->SuppressNextPreview();   // no picture on the screen for every look
-    }
+    // fast capture: no preview is made for the screen at all, so nothing needs suppressing
     uint8_t* jpeg = nullptr;
     size_t jpeg_len = 0;
-    if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len)) {
-        if (auto* display = board.walle_display(); display != nullptr) {
-            display->SuppressNextPreview(false);   // a failed look must not swallow the next real preview
-        }
+    if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len, true)) {
         return std::unexpected(std::string("The camera did not take a picture: ") + camera->CaptureError());
     }
     std::string body(reinterpret_cast<const char*>(jpeg), jpeg_len);

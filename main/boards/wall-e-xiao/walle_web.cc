@@ -548,7 +548,7 @@ void PhotoTask(void* arg) {
     if (job->live) {
         board.walle_display()->SuppressNextPreview();  // no picture over the robot's face for every frame
     }
-    const bool ok = camera != nullptr && camera->CaptureJpeg(job->live ? 55 : 75, &jpeg, &jpeg_len);
+    const bool ok = camera != nullptr && camera->CaptureJpeg(job->live ? 55 : 75, &jpeg, &jpeg_len, job->live);
     if (job->live) {
         board.walle_display()->SuppressNextPreview(false);  // a failed capture must not swallow the next real preview
     }

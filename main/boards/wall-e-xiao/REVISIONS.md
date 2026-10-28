@@ -2,8 +2,8 @@
 
 One number for the whole project. The **revision** goes up by one with every firmware build that is archived (`walle-backup\builds\<n>-<label>`), and every
 git repository of the project carries a tag `rev-<n>` at the commit that belongs to it. The number is built into the firmware (`walle_revision.h`,
-`WALLE_REVISION`), reported as `revision` in `/api/status`, shown as **Revision** on the landing page and in the app's Info table, and printed in the boot log
-(`Jarvis is ready (revision 86)`).
+`WALLE_REVISION`), reported as `revision` in `/api/status`, shown bottom-left as **Rev <n>** next to the app version ("App v2.36 - Rev 87") and at the bottom of the landing page, and printed in the boot log
+(`Jarvis is ready (revision 87)`).
 
 The app and the backend keep their own version names (app `versionName`, backend snapshot folders); this table says which of them went with which revision.
 

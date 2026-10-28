@@ -11,7 +11,7 @@
 //   FaceMe()   one-shot "look at me": at most four pictures. Each one is inspected first, then the robot decides where and how far to turn (towards the face, or on the spot to search
 //              when there is no face in it), and takes the next picture, until the face is in the middle.
 //   follow     the follow_mode setting: a background task repeats a look every follow_ms while Jarvis is idle.
-//   TalkTick() once a second while Jarvis speaks: now and then a quick left-right shake, matched to the current emotion.
+//   TalkTick() every 100 ms (own timer): while Jarvis speaks and sound is really coming out of the speaker, now and then a quick left-right sway, matched to the current emotion.
 namespace walle_track {
 
 struct Face {
@@ -36,7 +36,7 @@ void FaceMeLater();
 // True while a look or a correction is under way; the talking movements wait for it.
 bool Busy();
 
-// Called once a second from the board's tick. Does a talking movement now and then while Jarvis speaks.
+// Called every 100 ms by its own timer. Does a talking movement now and then while sound is coming out of the speaker.
 void TalkTick();
 
 }  // namespace walle_track

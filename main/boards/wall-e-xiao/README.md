@@ -204,7 +204,7 @@ motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mo
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · follow_ms 1000 (100-5000) ·
+visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · talk_alternate 1 · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · follow_ms 1000 (100-5000) ·
 face_invert 1 (the camera picture is mirrored against the wheels on this robot).
 
 ### Turning towards a face, follow mode, talking movements (`walle_track.cc`)
@@ -217,8 +217,8 @@ aimed 15% short so it never overshoots, at `face_power` (100% by default) for bi
 "Look at me" takes **at most four pictures**: the first is always a fresh one, each picture is inspected before the robot decides where and how far to turn, and with **no face in it** the robot turns on the spot (towards the side where a face was last seen, else right, about half the field of view) and looks again; the first face found is then centred as above.
 A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app)
 does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks
-less often after five empty looks. It is switched off at every start. **Talking movements** (`talk_motion`): while Jarvis speaks, every 2-4.5 s 
-a quick left-right shake at `talk_power` percent, matched to the current emotion (lively for happy ones, slow and small for sad ones, a glance 
+less often after five empty looks. It is switched off at every start. **Talking movements** (`talk_motion`): while Jarvis speaks and sound is really coming out of the speaker (the first one 0.15 s after the first sound, none in silent gaps; checked every 100 ms), every 2-4.5 s 
+a quick left-right sway at `talk_power` percent (`talk_alternate`, on by default: one wheel at a time, left then right then left, the body pivoting about the other wheel; off: both wheels turn it on the spot), matched to the current emotion (lively for happy ones, slow and small for sad ones, a glance 
 to one side for thinking); never during music or radio, a nap, a photo or a follow look.
 
 ## Changes outside this folder (all marked `WALL-E`)

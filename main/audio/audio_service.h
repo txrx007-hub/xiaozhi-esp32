@@ -125,6 +125,8 @@ public:
     bool IsVoiceDetected() const { return voice_detected_; }
     bool IsIdle();
     bool IsPlaybackIdle();
+    // Milliseconds since the last chunk of sound was handed to the speaker (large when nothing has played). The board's talking movements follow it.
+    int64_t MsSinceLastOutput() const;
     bool IsWakeWordRunning() const {
         return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;
     }

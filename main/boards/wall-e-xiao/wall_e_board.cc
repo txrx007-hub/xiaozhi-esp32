@@ -982,8 +982,6 @@ void WallEBoard::Tick() {
         display_->SetMuteIcon(muted);
     }
 
-    walle_track::TalkTick();   // a quick shake now and then while Jarvis speaks
-
     if (ringing_) {
         if (now > ring_until_us_) {
             StopRinging();

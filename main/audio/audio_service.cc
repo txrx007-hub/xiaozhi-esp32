@@ -793,6 +793,14 @@ bool AudioService::IsIdle() {
     return audio_encode_queue_.empty() && IsPlaybackDrainedLocked() && audio_testing_queue_.empty();
 }
 
+int64_t AudioService::MsSinceLastOutput() const {
+    const auto last = last_output_time_;   // written by the output task; a torn read at worst gives one odd answer
+    if (last.time_since_epoch().count() == 0) {
+        return INT64_MAX;
+    }
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last).count();
+}
+
 bool AudioService::IsPlaybackIdle() {
     std::lock_guard<std::mutex> lock(audio_queue_mutex_);
     return IsPlaybackDrainedLocked();

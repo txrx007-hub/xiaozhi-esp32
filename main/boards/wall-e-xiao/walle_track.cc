@@ -54,6 +54,11 @@ TaskHandle_t g_task = nullptr;
 int g_last_direction = 0;            // -1 = turned left, +1 = turned right, 0 = unknown (forgotten after a pause)
 int64_t g_last_turn_us = 0;
 int64_t g_next_talk_us = 0;
+bool g_audio_flowing = false;        // sound is coming out of the speaker (see TalkTick)
+int g_talk_side = -1;                // which wheel led the last talking movement: -1 left, +1 right
+esp_timer_handle_t g_talk_timer = nullptr;
+constexpr int kAudioFlowMs = 250;    // sound counts as coming out while its last chunk went to the speaker at most this long ago
+constexpr int kFirstMoveMs = 150;    // the first movement of a reply starts this long after its first sound
 std::unique_ptr<Http> g_retired;     // the previous look's HTTP client, freed only when the next look is done (see Look())
 float g_gain = kSeedGain;            // learned: picture widths (x units) per millisecond of turning at 100% power
 int64_t g_last_look_us = 0;          // when the camera was last asked for a look
@@ -368,11 +373,14 @@ void TrackTask(void*) {
     }
 }
 
-// Short left-right shakes in place, at talk_power. Each step is long enough for the soft start to get the wheels moving.
-std::vector<MotorDriver::Step> TalkSteps(const std::string& emotion, int power) {
-    const int p = power;
+// Short left-right sways, at talk_power. Each step is long enough for the soft start to get the wheels moving. side 0: both wheels turn the body on
+// the spot; side -1 / +1: only the left / right wheel moves and the body swings about the other one. A sway goes out and comes back, so the heading ends the same.
+std::vector<MotorDriver::Step> TalkSteps(const std::string& emotion, int power, int side) {
+    const int l = side == 0 ? power : (side < 0 ? power : 0);
+    const int r = side == 0 ? -power : (side < 0 ? 0 : power);
+    auto swing = [&](int ms, int dir) { return MotorDriver::Step{dir * l, dir * r, ms}; };
     auto shake = [&](int ms) {
-        return std::vector<MotorDriver::Step>{{p, -p, ms}, {-p, p, ms}};
+        return std::vector<MotorDriver::Step>{swing(ms, 1), swing(ms, -1)};
     };
     if (emotion == "happy" || emotion == "laughing" || emotion == "funny" || emotion == "silly" ||
         emotion == "winking" || emotion == "delicious" || emotion == "cool" || emotion == "confident" ||
@@ -383,10 +391,10 @@ std::vector<MotorDriver::Step> TalkSteps(const std::string& emotion, int power) 
         return steps;
     }
     if (emotion == "sad" || emotion == "crying" || emotion == "sleepy" || emotion == "embarrassed") {
-        return {{p, -p, 220}, {0, 0, 260}, {-p, p, 220}};   // slow and small
+        return {swing(220, 1), {0, 0, 260}, swing(220, -1)};   // slow and small
     }
     if (emotion == "thinking" || emotion == "confused") {
-        return {{(esp_random() & 1) ? p : -p, (esp_random() & 1) ? -p : p, 200}, {0, 0, 350}};   // a glance to one side
+        return {swing(200, (esp_random() & 1) ? 1 : -1), {0, 0, 350}};   // a glance to one side
     }
     return shake(190);                     // calm default: one shake
 }
@@ -399,6 +407,13 @@ void Start() {
         settings.Set("follow_mode", "0");   // never driving around by itself after a restart
     }
     xTaskCreate(TrackTask, "track", 8192, nullptr, 3, &g_task);
+    esp_timer_create_args_t talk = {};
+    talk.callback = [](void*) { TalkTick(); };
+    talk.name = "talk_motion";
+    talk.skip_unhandled_events = true;
+    if (esp_timer_create(&talk, &g_talk_timer) == ESP_OK) {
+        esp_timer_start_periodic(g_talk_timer, 100 * 1000);
+    }
 }
 
 void Wake() {
@@ -412,19 +427,30 @@ void FaceMeLater() {
     Wake();
 }
 
+// Every 100 ms (a timer of its own). The "Speaking" state starts well before the first word comes out of the speaker (the server's first sentence
+// still has to be spoken, sent and decoded), so the movements follow the sound itself: they begin a moment after the first sound reaches the speaker
+// and stand still again in the gaps between sentences.
 void TalkTick() {
     auto& board = WallEBoard::Get();
     auto& settings = WalleSettings::GetInstance();
     auto* display = board.walle_display();
-    if (display == nullptr || !settings.GetBool("talk_motion") ||
-        Application::GetInstance().GetDeviceState() != kDeviceStateSpeaking) {
+    auto& app = Application::GetInstance();
+    if (display == nullptr || !settings.GetBool("talk_motion") || app.GetDeviceState() != kDeviceStateSpeaking) {
         g_next_talk_us = 0;
+        g_audio_flowing = false;
+        return;
+    }
+    const bool flowing = app.GetAudioService().MsSinceLastOutput() <= kAudioFlowMs;
+    if (!flowing) {
+        g_audio_flowing = false;   // no words coming out yet, or a pause between two sentences: stand still
         return;
     }
     const int64_t now = NowUs();
-    if (g_next_talk_us == 0) {
-        g_next_talk_us = now + 800 * 1000;   // not at the very first word
-        return;
+    if (!g_audio_flowing) {
+        g_audio_flowing = true;
+        if (g_next_talk_us == 0) {
+            g_next_talk_us = now + kFirstMoveMs * 1000;   // the first sound of this reply
+        }
     }
     if (now < g_next_talk_us) {
         return;
@@ -435,7 +461,12 @@ void TalkTick() {
         board.motors().IsBusy()) {
         return;
     }
-    board.motors().Run(TalkSteps(display->AutoEmotionCopy(), settings.GetInt("talk_power")), false);
+    int side = 0;
+    if (settings.GetBool("talk_alternate")) {
+        g_talk_side = -g_talk_side;   // left, right, left, ...
+        side = g_talk_side;
+    }
+    board.motors().Run(TalkSteps(display->AutoEmotionCopy(), settings.GetInt("talk_power"), side), false);
 }
 
 }  // namespace walle_track

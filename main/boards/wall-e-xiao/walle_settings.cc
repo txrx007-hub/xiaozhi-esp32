@@ -94,6 +94,8 @@ WalleSettings::WalleSettings() {
         {"talk_motion", Kind::kBool, 0, 1, 1,
          "small left and right body movements while Jarvis is speaking (never during music, a nap or a photo)"},
         {"talk_power", Kind::kInt, 20, 100, 80, "power of those talking movements, in percent (20 is a small twitch, 100 a big shake)"},
+        {"talk_alternate", Kind::kBool, 0, 1, 1,
+         "talking movements swing from one wheel at a time, left then right then left (off: both wheels turn the body on the spot)"},
         {"follow_mode", Kind::kBool, 0, 1, 0,
          "keep turning towards your face (needs the own server; always off after a restart)"},
         {"face_power", Kind::kInt, 30, 100, 100,

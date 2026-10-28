@@ -553,7 +553,11 @@ void PhotoTask(void* arg) {
         board.walle_display()->SuppressNextPreview(false);  // a failed capture must not swallow the next real preview
     }
     if (!ok) {
-        httpd_resp_send_err(job->req, HTTPD_500_INTERNAL_SERVER_ERROR, "the camera did not deliver a picture");
+        std::string why = "the camera did not deliver a picture";
+        if (camera != nullptr && camera->CaptureError()[0] != '\0') {
+            why += std::string(": ") + camera->CaptureError();
+        }
+        httpd_resp_send_err(job->req, HTTPD_500_INTERNAL_SERVER_ERROR, why.c_str());
     } else {
         httpd_resp_set_type(job->req, "image/jpeg");
         httpd_resp_set_hdr(job->req, "Cache-Control", "no-store");

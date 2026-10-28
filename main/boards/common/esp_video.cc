@@ -505,42 +505,54 @@ bool EspVideo::ProbeFrame() {
     return true;
 }
 
+// A picture that did not come out is tried once more after a short pause: the first failure is usually a short memory squeeze (the PSRAM is
+// fragmented after hours of running) or a damaged frame. CaptureError() says what went wrong; the log has the memory figures.
 bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len) {
+    for (int attempt = 1; attempt <= 2; ++attempt) {
+        if (attempt > 1) {
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+        if (CaptureJpegOnce(quality, out, out_len)) {
+            return true;
+        }
+        ESP_LOGW(TAG, "CaptureJpeg attempt %d failed: %s (PSRAM free %u KB, largest block %u KB, internal largest %u KB)", attempt, capture_error_,
+                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024));
+    }
+    return false;
+}
+
+bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len) {
     *out = nullptr;
     *out_len = 0;
+    capture_error_ = "no frame from the camera";
     if (!EspVideo::Capture()) {  // the base class: no shutter sound; the screen shows the picture for 2 s like for any photo
         return false;
     }
-    FrameBuffer snap;
-    {
-        // Another capture (a spoken "take a photo") may replace frame_ the moment the lock is free: work on a private copy.
-        std::lock_guard<std::mutex> lock(capture_mutex_);
-        if (frame_.data == nullptr || frame_.len == 0) {
-            return false;
-        }
-        snap = frame_;
-        snap.data = (uint8_t*)heap_caps_aligned_alloc(16, frame_.len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (snap.data == nullptr) {
-            ESP_LOGE(TAG, "CaptureJpeg: no memory for a copy of the frame (%zu bytes)", frame_.len);
-            return false;
-        }
-        memcpy(snap.data, frame_.data, frame_.len);
+    // The frame is encoded where it lies, under the lock (another capture would replace it the moment the lock is free): a private copy would
+    // need a second 600 KB block of PSRAM, the very thing that runs short first after hours of running.
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    if (frame_.data == nullptr || frame_.len == 0) {
+        capture_error_ = "the frame was empty";
+        return false;
     }
     // The encoder needs more stack than the web server's task has: run it in a thread, as Explain() does.
     bool ok = false;
     std::thread encoder([&]() {
-        ok = image_to_jpeg(snap.data, snap.len, snap.width ? snap.width : 320, snap.height ? snap.height : 240, snap.format, quality, out, out_len);
+        ok = image_to_jpeg(frame_.data, frame_.len, frame_.width ? frame_.width : 320, frame_.height ? frame_.height : 240, frame_.format, quality, out, out_len);
     });
     encoder.join();
-    heap_caps_free(snap.data);
     if (!ok || *out == nullptr || *out_len == 0) {
         if (*out != nullptr) {
             heap_caps_free(*out);
         }
         *out = nullptr;
         *out_len = 0;
+        capture_error_ = "the picture could not be turned into a JPEG (memory)";
         return false;
     }
+    capture_error_ = "";
     return true;
 }
 

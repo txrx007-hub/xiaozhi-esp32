@@ -102,7 +102,7 @@ WalleSettings::WalleSettings() {
         {"face_short_ms", Kind::kInt, 100, 1500, 300, "turn towards your face: a small correction, in milliseconds at full power"},
         {"face_mid_ms", Kind::kInt, 100, 2000, 500, "turn towards your face: a medium correction, in milliseconds at full power"},
         {"face_long_ms", Kind::kInt, 100, 3000, 1000, "turn towards your face: a big correction, in milliseconds at full power"},
-        {"face_invert", Kind::kBool, 0, 1, 0, "swap left and right if Jarvis turns away from your face"},
+        {"face_invert", Kind::kBool, 0, 1, 1, "swap left and right if Jarvis turns away from your face"},
         {"mic_gain_db", Kind::kInt, 0, 24, 18, "software microphone gain in dB"},
         {"wake_threshold", Kind::kHundredths, 50, 95, 52, "wake word threshold, lower wakes more easily"},
         {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},

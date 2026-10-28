@@ -202,7 +202,7 @@ motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (mode
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
 visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · follow_ms 1000 ·
-face_short_ms 300 · face_mid_ms 500 · face_long_ms 1000 · face_invert 0.
+face_short_ms 300 · face_mid_ms 500 · face_long_ms 1000 · face_invert 1 (the camera picture is mirrored against the wheels on this robot).
 
 ### Turning towards a face, follow mode, talking movements (`walle_track.cc`)
 

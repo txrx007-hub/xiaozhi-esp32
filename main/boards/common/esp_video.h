@@ -46,6 +46,8 @@ private:
     std::string explain_token_;
     std::thread encoder_thread_;
     std::mutex capture_mutex_;  // WALL-E: serializes Capture() and ProbeFrame() on video_fd_
+    const char* capture_error_ = "";
+    bool CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len);
     void Open(const esp_video_init_config_t& config);   // WALL-E: constructor / Restart()
     void Close();                                       // WALL-E: destructor / Restart()
 
@@ -64,6 +66,8 @@ public:
     // WALL-E: one picture as a JPEG for the settings page's Camera button: no sound, no analysis, nothing sent anywhere. On success *out is the
     // JPEG (allocated here, the caller frees it with heap_caps_free) and *out_len its size.
     bool CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len);
+    // WALL-E: why the last CaptureJpeg() failed, in words for the page and the log ("" after a success).
+    const char* CaptureError() const { return capture_error_; }
     // WALL-E: the sensor's auto-exposure target (V4L2_CID_CAMERA_AE_LEVEL, -5..5, 0 = sensor default): higher = brighter pictures.
     bool SetAeLevel(int level);
     // WALL-E: write one raw sensor register (via esp_cam_sensor's ioctl pass-through).

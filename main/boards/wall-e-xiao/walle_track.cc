@@ -107,7 +107,10 @@ std::expected<Face, std::string> Look() {
     uint8_t* jpeg = nullptr;
     size_t jpeg_len = 0;
     if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len)) {
-        return std::unexpected("The camera did not take a picture.");
+        if (auto* display = board.walle_display(); display != nullptr) {
+            display->SuppressNextPreview(false);   // a failed look must not swallow the next real preview
+        }
+        return std::unexpected(std::string("The camera did not take a picture: ") + camera->CaptureError());
     }
     std::string body(reinterpret_cast<const char*>(jpeg), jpeg_len);
     heap_caps_free(jpeg);

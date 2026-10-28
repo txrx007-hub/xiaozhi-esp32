@@ -201,14 +201,14 @@ motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mo
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · follow_ms 1000 ·
+visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · face_fine_power 80 (80-100) · follow_ms 1000 ·
 face_short_ms 300 · face_mid_ms 500 · face_long_ms 1000 · face_invert 1 (the camera picture is mirrored against the wheels on this robot).
 
 ### Turning towards a face, follow mode, talking movements (`walle_track.cc`)
 
 Everything here drives the wheels only, always in place. **Turn to face me** (`self.robot.face_me`, the page's *Face me* button, 
 "look at me"): one picture goes to `POST /mcp/vision/face` on the own server (OpenCV finds the biggest face), the answer is the face's 
-offset from the middle of the picture (-1 left edge .. +1 right edge). Below 12% Jarvis is already facing you; otherwise it turns at `face_power` (100% unless the slider says otherwise; read at every turn, so it can be tuned live while Jarvis tracks you) 
+offset from the middle of the picture (-1 left edge .. +1 right edge). Below the margin `face_deadzone` (18% by default) Jarvis is already facing you; otherwise it turns at `face_power`, small corrections (under 30%) at the gentler `face_fine_power` (80%), (100% unless the slider says otherwise; read at every turn, so it can be tuned live while Jarvis tracks you) 
 for `face_short_ms` (12-30%), `face_mid_ms` (30-55%) or `face_long_ms` (over 55%), looks again, and repeats up to three times. 
 A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app) 
 does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks 

@@ -30,8 +30,7 @@ namespace walle_track {
 
 namespace {
 
-// How far off-centre a face may be (as a part of half the picture width) before Jarvis turns, and where the medium and big corrections begin.
-constexpr float kCentred = 0.12f;
+// Where the medium and big corrections begin, as a part of half the picture width (the margin before Jarvis turns at all is the setting face_deadzone).
 constexpr float kMedium = 0.30f;
 constexpr float kBig = 0.55f;
 constexpr int kMaxRounds = 3;
@@ -79,13 +78,15 @@ int Damped(int ms, int direction) {
     return ms;
 }
 
-// Turns in place at face_power (100% by default) for ms. +1 = right, -1 = left. False if the move was stopped.
-bool Pulse(int direction, int ms) {
+// Turns in place at face_power (100% by default; small corrections at face_fine_power) for ms. +1 = right, -1 = left. False if the move was stopped.
+bool Pulse(int direction, int ms, bool fine) {
     auto& board = WallEBoard::Get();
     if (WalleSettings::GetInstance().GetBool("face_invert")) {
         direction = -direction;
     }
-    const int power = WalleSettings::GetInstance().GetInt("face_power") * direction;   // 100 unless the slider says otherwise; read at every turn, so it works live
+    auto& settings = WalleSettings::GetInstance();
+    const int percent = settings.GetInt(fine ? "face_fine_power" : "face_power");   // small corrections have their own power, 80-100
+    const int power = percent * direction;   // read at every turn, so the sliders work live
     return board.motors().RunAndWait({{power, -power, ms}}, ms + 2000);
 }
 
@@ -164,10 +165,10 @@ std::expected<Face, std::string> Look() {
 
 int TurnMs(float x) {
     const float a = std::fabs(x);
-    if (a < kCentred) {
+    auto& settings = WalleSettings::GetInstance();
+    if (a < settings.GetInt("face_deadzone") / 100.0f) {
         return 0;
     }
-    auto& settings = WalleSettings::GetInstance();
     if (a < kMedium) {
         return settings.GetInt("face_short_ms");
     }
@@ -204,7 +205,7 @@ std::expected<std::string, std::string> FaceMe() {
             return std::string(turned ? "I am facing you now." : "I am already facing you.");
         }
         const int direction = face->x > 0 ? 1 : -1;
-        if (!Pulse(direction, Damped(ms, direction))) {
+        if (!Pulse(direction, Damped(ms, direction), std::fabs(face->x) < kMedium)) {
             return std::unexpected("Stopped while turning.");
         }
         turned = true;
@@ -240,7 +241,7 @@ bool FollowStep() {
         return true;
     }
     const int direction = face->x > 0 ? 1 : -1;
-    Pulse(direction, Damped(ms, direction));
+    Pulse(direction, Damped(ms, direction), std::fabs(face->x) < kMedium);
     vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     return true;
 }

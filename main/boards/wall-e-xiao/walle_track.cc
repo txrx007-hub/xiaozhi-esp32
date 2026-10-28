@@ -35,8 +35,8 @@ namespace {
 // the power of the big turns is face_power; corrections of less than kMedium use 80% of it (never lower).
 constexpr float kMedium = 0.30f;
 constexpr int kSmallPower = 80;
-constexpr int kMaxRounds = 4;          // at most four centring steps for "look at me"
-constexpr int kSearchSteps = 6;        // "look at me" with no face in view: turn on the spot and look again, at most this many times
+constexpr int kMaxLooks = 4;           // "look at me": at most four pictures; each is inspected first, then the robot decides where (and how far) to turn
+constexpr int64_t kFreshUs = 1500 * 1000;   // a camera queue untouched for longer than this holds old frames: the next look takes all three
 constexpr float kSearchShift = 1.0f;   // each search step turns the picture by about this much (half the field of view)
 constexpr float kSeedGain = 0.0007f;   // measured on this robot at 100%: about 0.34 of the picture in 500 ms
 constexpr float kMinGain = 0.0003f;
@@ -56,6 +56,7 @@ int64_t g_last_turn_us = 0;
 int64_t g_next_talk_us = 0;
 std::unique_ptr<Http> g_retired;     // the previous look's HTTP client, freed only when the next look is done (see Look())
 float g_gain = kSeedGain;            // learned: picture widths (x units) per millisecond of turning at 100% power
+int64_t g_last_look_us = 0;          // when the camera was last asked for a look
 bool g_stale_view = false;           // the wheels turned since the last look: the camera queue still holds frames from before the turn
 int g_seen_side = 0;                 // which side the face was last seen on: -1 left, +1 right (where a search starts)
 
@@ -186,11 +187,16 @@ std::expected<Face, std::string> Look() {
     // No preview for the screen. Right after a turn all three frames are taken: the first ones in the queue are from before or during the turn.
     uint8_t* jpeg = nullptr;
     size_t jpeg_len = 0;
-    const int frames = g_stale_view ? 3 : 1;
+    // The camera keeps a queue of frames that were taken while nobody asked: after a turn, or after any pause, the first ones are old (an earlier view,
+    // blur, nobody in front of it). Then all three frames are taken so that the last one is fresh; in a quick series of looks one is enough.
+    const int64_t now = NowUs();
+    const bool old_queue = g_stale_view || g_last_look_us == 0 || now - g_last_look_us > kFreshUs;
+    const int frames = old_queue ? 3 : 1;
     g_stale_view = false;
     if (!camera->CaptureJpeg(55, &jpeg, &jpeg_len, frames, false)) {
         return std::unexpected(std::string("The camera did not take a picture: ") + camera->CaptureError());
     }
+    g_last_look_us = NowUs();
     std::string body(reinterpret_cast<const char*>(jpeg), jpeg_len);
     heap_caps_free(jpeg);
 
@@ -254,46 +260,49 @@ std::expected<std::string, std::string> FaceMe() {
     // (the caller wakes Jarvis from a nap first: that must happen on the main task)
     g_last_direction = 0;
     g_pending.valid = false;
-    int centring = 0;
-    int searching = 0;
-    while (true) {
+    g_stale_view = true;   // the first picture must be a fresh one, not the last frame from whenever the camera was last used
+    bool turned = false;
+    bool seen = false;
+    for (int look = 1; look <= kMaxLooks; ++look) {
         auto face = Look();
         if (!face) {
             return std::unexpected(face.error());
         }
         Learn(*face);
         if (!face->found) {
-            if (centring > 0) {
+            if (seen) {
                 return std::string("I turned, but now I cannot see your face. Step in front of me.");
             }
-            if (searching >= kSearchSteps) {
-                return std::string("I looked all around but I cannot see a face. Step in front of me, in the light, and ask again.");
+            if (look == kMaxLooks) {
+                break;   // the last picture: nothing left to look at after another turn
             }
-            // Nobody in view: turn on the spot (towards the side where a face was last seen, else to the right) and look again.
-            ++searching;
+            // Nobody in the picture: turn on the spot (towards the side where a face was last seen, else to the right) and look again.
             const int ms = std::clamp(static_cast<int>(kSearchShift / g_gain), 500, 1800);
-            ESP_LOGI(TAG, "No face in view: searching, step %d of %d (%d ms)", searching, kSearchSteps, ms);
+            ESP_LOGI(TAG, "Picture %d of %d: no face in view: searching (%d ms)", look, kMaxLooks, ms);
             if (!Pulse(g_seen_side != 0 ? g_seen_side : 1, ms, WalleSettings::GetInstance().GetInt("face_power"))) {
                 return std::unexpected("Stopped while turning.");
             }
+            turned = true;
             vTaskDelay(pdMS_TO_TICKS(kSettleMs));
             continue;
         }
+        seen = true;
         g_seen_side = face->x > 0 ? 1 : -1;
         const Plan plan = PlanTurn(face->x);
-        ESP_LOGI(TAG, "Face at %.2f (width %.2f, %d seen): %d ms at %d%%", face->x, face->width, face->count, plan.ms, plan.power);
+        ESP_LOGI(TAG, "Picture %d of %d: face at %.2f (width %.2f, %d seen): %d ms at %d%%", look, kMaxLooks, face->x, face->width, face->count, plan.ms, plan.power);
         if (plan.ms == 0) {
-            return std::string(centring > 0 || searching > 0 ? "I am facing you now." : "I am already facing you.");
+            return std::string(turned ? "I am facing you now." : "I am already facing you.");
         }
-        if (centring >= kMaxRounds) {
-            return std::string("I turned towards you.");
-        }
-        ++centring;
         if (!Turn(*face, plan)) {
             return std::unexpected("Stopped while turning.");
         }
+        turned = true;
         vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     }
+    if (!seen) {
+        return std::string("I looked around but I cannot see a face. Step in front of me, in the light, and ask again.");
+    }
+    return std::string("I turned towards you.");
 }
 
 namespace {

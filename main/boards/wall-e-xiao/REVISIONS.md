@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 87 | 2026-10-28 | "Look at me": the first picture is always fresh (the camera queue held an old frame after a pause: no face in the first picture, so it started searching while you sat in front of it); at most four pictures, each inspected first, then turn, then the next picture; the server also keeps rare "no face" pictures to see why | 2.36 | backend: `_noface` pictures |
 | 86 | 2026-10-28 | After-turn looks take three camera frames (the first one was stale and blurred, "turned, but cannot see your face"); steadier turning-speed learning; revision numbering | 2.36 | tags `rev-86` |
 | 85 | 2026-10-28 | The robot works out the face turn from a learned turning speed; "look at me" searches when no face is in view, four centring steps at most; `face_deadzone` | 2.36 | |
 | 84 | 2026-10-28 | Faster follow looks (first frame, no screen preview) | 2.34 | |

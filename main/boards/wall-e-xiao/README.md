@@ -213,8 +213,8 @@ Everything here drives the wheels only, always in place. **Turn to face me** (`s
 "look at me"): one picture goes to `POST /mcp/vision/face` on the own server (OpenCV finds the biggest face), the answer is the face's 
 offset from the middle of the picture (-1 left edge .. +1 right edge). Within the margin `face_deadzone` (18% of half the picture by default) Jarvis is already facing you.
 Otherwise the **robot works out the turn itself**: the duration is the offset divided by the turning speed it has learned (after every turn the next look shows how far the picture really moved; an average of those measurements, kept in RAM, seeded with 0.0007 pictures per millisecond at 100%),
-aimed 15% short so it never overshoots, at `face_power` (100% by default) for big turns and 80% of it (never lower than 80) for corrections under 30%. It looks again and repeats up to four times.
-With **no face in view** the one-shot first searches: it turns on the spot (towards the side where a face was last seen, else right) in steps of about half the field of view, up to six, and looks after each; the first face found is then centred as above.
+aimed 15% short so it never overshoots, at `face_power` (100% by default) for big turns and 80% of it (never lower than 80) for corrections under 30%. It looks again (four pictures in all).
+"Look at me" takes **at most four pictures**: the first is always a fresh one, each picture is inspected before the robot decides where and how far to turn, and with **no face in it** the robot turns on the spot (towards the side where a face was last seen, else right, about half the field of view) and looks again; the first face found is then centred as above.
 A turn against the previous one (it went too far) is 40% shorter. **Follow mode** (`follow_mode`, the toggle on the page and in the app)
 does one look every `follow_ms` while Jarvis is idle (never during a conversation, a nap, an alarm or while the wheels are busy), and looks
 less often after five empty looks. It is switched off at every start. **Talking movements** (`talk_motion`): while Jarvis speaks, every 2-4.5 s 

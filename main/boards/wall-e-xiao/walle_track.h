@@ -8,7 +8,8 @@
 // A look is one picture sent to the own server (POST /mcp/vision/face on the OTA address' host), which answers where the biggest face is.
 // The turn is worked out by the robot: its duration follows from how far off-centre the face is and from the turning speed the robot has learned from its own
 // earlier turns; the power is face_power (80% for small corrections, never lower); the margin before it turns at all is face_deadzone.
-//   FaceMe()   one-shot "look at me": with no face in view it first turns on the spot to search (up to six steps); then up to four looks, each followed by a correction, until the face is in the middle.
+//   FaceMe()   one-shot "look at me": at most four pictures. Each one is inspected first, then the robot decides where and how far to turn (towards the face, or on the spot to search
+//              when there is no face in it), and takes the next picture, until the face is in the middle.
 //   follow     the follow_mode setting: a background task repeats a look every follow_ms while Jarvis is idle.
 //   TalkTick() once a second while Jarvis speaks: now and then a quick left-right shake, matched to the current emotion.
 namespace walle_track {

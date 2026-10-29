@@ -24,6 +24,7 @@ public:
 
     // Upstream hooks
     void SetupUI() override;
+    void UpdateStatusBar(bool update_all = false) override;  // also keeps the Wi-Fi bars up to date
     void SetEmotion(const char* emotion) override;  // automatic emotions (wait during a hold)
     // Jarvis's words only (the user's transcript is dropped). Each sentence clears itself a
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
@@ -165,6 +166,16 @@ private:
     lv_obj_t* status_dot_ = nullptr;
     lv_obj_t* mute_icon_ = nullptr;
     lv_obj_t* clock_wifi_ = nullptr;
+    // The Wi-Fi icon: five bars like a phone's, drawn from boxes (no font, no background), on the eyes' top bar and again on the clock.
+    static constexpr int kWifiBars = 5;
+    lv_obj_t* wifi_bars_[kWifiBars] = {};
+    lv_obj_t* clock_wifi_bars_[kWifiBars] = {};
+    int wifi_level_ = 0;          // bars lit: 0 (no link) .. kWifiBars
+    int wifi_rssi_avg_ = 0;       // smoothed signal strength in dBm, 0 = none yet
+    int64_t wifi_read_us_ = 0;
+    void CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars);
+    void PaintWifiBars();         // colours the bars for wifi_level_ (display lock held)
+    void UpdateWifiBars();        // reads the signal (at most every 4 s) and repaints on a change
     bool mute_on_ = false;
     void CreateMuteIcon();
     void PlaceMuteIcon();  // left edge on the clock, right of the Wi-Fi icon on the eyes; on top of the layer

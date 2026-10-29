@@ -92,7 +92,7 @@ idf.py -p COM10 coredump-info -c build/xiaozhi.elf
 
 Cyan eye expressions (xiaozhi's Otto set, 21 emotions; turquoise/lime green neutral, and surprised
 picks a fresh random color each time it's shown - but no longer on taking a photo, see below) ·
-Wi-Fi icon and status text on top · status dot top-right
+Wi-Fi bars (five, like a phone) and status text on top · status dot top-right
 (green ready, amber starting/connecting, red offline) · level bars under the eyes (Jarvis's voice
 while speaking, your voice while listening) - replaced by a 32-band classic-Winamp-style spectrum
 (green/yellow/red bars growing up from the bottom, not mirrored, with peak-hold dots that sit for

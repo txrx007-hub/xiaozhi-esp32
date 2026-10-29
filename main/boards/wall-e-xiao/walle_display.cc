@@ -16,6 +16,7 @@
 #include "assets/lang_config.h"
 #include "config.h"
 #include "lvgl_theme.h"
+#include "wifi_manager.h"
 
 #ifdef WALLE_BOOT_GIF   // boot.gif, built into the app by main/CMakeLists.txt when the file is there
 extern const uint8_t boot_gif_start[] asm("_binary_boot_gif_start");
@@ -34,6 +35,10 @@ constexpr uint32_t kClockBg = 0x061418;
 constexpr uint32_t kClockOn = 0x2ee6d6;
 constexpr uint32_t kClockGhost = 0x0d2a2c;
 constexpr uint32_t kClockText = 0x7ee7df;
+
+// Wi-Fi bars: a lit bar is white, an unlit one the dark grey of the example picture (it stands out from the black screen)
+constexpr uint32_t kWifiOn = 0xffffff;
+constexpr uint32_t kWifiOff = 0x4b4b4b;
 
 // 7-segment layout: digit box and segment thickness
 constexpr int kDigitW = 44;
@@ -290,6 +295,7 @@ void WalleDisplay::SetupUI() {
     // Order matters on the top layer: bars under the clock, status dot above everything.
     CreateRibbon();
     CreateVisuals();
+    CreateWifiBars(network_label_, wifi_bars_);   // over the stock font icon, which stays in place as an invisible spacer
     CreateClock();
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
     CreateMuteIcon();
@@ -297,6 +303,69 @@ void WalleDisplay::SetupUI() {
         [](lv_timer_t* t) { static_cast<WalleDisplay*>(lv_timer_get_user_data(t))->UpdateRibbon(); },
         40, this);
     ShowBootSplash();   // last, so it lies over everything on the top layer (the status dot too)
+}
+
+void WalleDisplay::CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars) {
+    if (holder == nullptr || network_label_ == nullptr) {
+        return;
+    }
+    // As tall as the stock icon's line, so the top bar keeps its height; proportions of the example picture (bar about 0.19 of the height, gap about 0.09, heights 1/5 .. 5/5)
+    const lv_font_t* font = lv_obj_get_style_text_font(network_label_, LV_PART_MAIN);
+    const int h = std::clamp(font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16, 12, 24);
+    const int bar_w = std::max(2, (h + 2) / 5);
+    const int gap = std::max(1, (h + 5) / 10);
+    const int total_w = kWifiBars * bar_w + (kWifiBars - 1) * gap;
+    lv_label_set_long_mode(holder, LV_LABEL_LONG_CLIP);
+    lv_obj_set_size(holder, total_w, h);
+    lv_obj_set_style_text_opa(holder, LV_OPA_TRANSP, 0);   // the stock glyph is still written into the label by the status bar; it must not show
+    lv_obj_remove_flag(holder, LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < kWifiBars; ++i) {
+        const int bar_h = std::max(2, h * (i + 1) / kWifiBars);
+        bars[i] = MakeBox(holder, i * (bar_w + gap), h - bar_h, bar_w, bar_h, kWifiOff, 0);
+    }
+}
+
+void WalleDisplay::PaintWifiBars() {
+    for (int i = 0; i < kWifiBars; ++i) {
+        const lv_color_t colour = lv_color_hex(wifi_level_ > i ? kWifiOn : kWifiOff);
+        if (wifi_bars_[i] != nullptr) {
+            lv_obj_set_style_bg_color(wifi_bars_[i], colour, 0);
+        }
+        if (clock_wifi_bars_[i] != nullptr) {
+            lv_obj_set_style_bg_color(clock_wifi_bars_[i], colour, 0);
+        }
+    }
+}
+
+void WalleDisplay::UpdateWifiBars() {
+    const int64_t now = esp_timer_get_time();
+    if (wifi_read_us_ != 0 && now - wifi_read_us_ < 4 * 1000000LL) {
+        return;
+    }
+    wifi_read_us_ = now;
+    auto& wifi = WifiManager::GetInstance();
+    int level = 0;
+    if (wifi.IsConfigMode()) {
+        level = kWifiBars;   // like the stock icon, which showed the full one while the set-up network is open
+        wifi_rssi_avg_ = 0;
+    } else if (wifi.IsConnected()) {
+        const int rssi = wifi.GetRssi();
+        wifi_rssi_avg_ = wifi_rssi_avg_ == 0 ? rssi : (wifi_rssi_avg_ * 3 + rssi) / 4;   // a little smoothing: the signal jumps a few dB from one reading to the next
+        level = wifi_rssi_avg_ >= -55 ? 5 : wifi_rssi_avg_ >= -65 ? 4 : wifi_rssi_avg_ >= -72 ? 3 : wifi_rssi_avg_ >= -80 ? 2 : 1;
+    } else {
+        wifi_rssi_avg_ = 0;
+    }
+    if (level == wifi_level_) {
+        return;
+    }
+    DisplayLockGuard lock(this);
+    wifi_level_ = level;
+    PaintWifiBars();
+}
+
+void WalleDisplay::UpdateStatusBar(bool update_all) {
+    SpiLcdDisplay::UpdateStatusBar(update_all);
+    UpdateWifiBars();
 }
 
 int WalleDisplay::Fps() {
@@ -1178,8 +1247,10 @@ void WalleDisplay::CreateClock() {
     lv_obj_t* hint = MakeLabel(clock_root_, text_font, 0x5fd3c9, "Say \"" WAKE_WORD_NAME "\"");
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -10);
 
-    // The eyes' Wi-Fi icon, repeated on the clock in the same place (placed and kept up to date while the clock shows)
+    // The eyes' Wi-Fi icon, repeated on the clock in the same place (placed while the clock shows; the bars are repainted with the eyes' ones)
     clock_wifi_ = MakeLabel(clock_root_, &BUILTIN_ICON_FONT, 0xffffff, "");
+    CreateWifiBars(clock_wifi_, clock_wifi_bars_);
+    PaintWifiBars();
 
     lv_obj_add_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1309,7 +1380,6 @@ void WalleDisplay::ShowIdleClock(bool show) {
                 lv_area_t a;
                 lv_obj_get_coords(network_label_, &a);
                 lv_obj_set_pos(clock_wifi_, a.x1, a.y1);
-                lv_label_set_text(clock_wifi_, lv_label_get_text(network_label_));
             }
             lv_obj_remove_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
             if (status_dot_ != nullptr) {
@@ -1332,13 +1402,6 @@ void WalleDisplay::ShowIdleClock(bool show) {
 void WalleDisplay::RefreshIdleClock() {
     if (!clock_shown_) {
         return;
-    }
-    if (clock_wifi_ != nullptr && network_label_ != nullptr) {   // the stock bar changes its icon every 10 s at most
-        DisplayLockGuard lock(this);
-        const char* icon = lv_label_get_text(network_label_);
-        if (icon != nullptr && strcmp(icon, lv_label_get_text(clock_wifi_)) != 0) {
-            lv_label_set_text(clock_wifi_, icon);
-        }
     }
     time_t now = time(nullptr);
     struct tm local;

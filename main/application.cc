@@ -624,7 +624,9 @@ void Application::InitializeProtocol() {
             if (strcmp(state->valuestring, "start") == 0) {
                 // local: the server marks music and radio with "visual":"winamp"; any other speech clears it again
                 auto visual = cJSON_GetObjectItem(root, "visual");
-                display->SetMusicVisual(cJSON_IsString(visual) && strcmp(visual->valuestring, "winamp") == 0);
+                const bool music = cJSON_IsString(visual) && strcmp(visual->valuestring, "winamp") == 0;
+                display->SetMusicVisual(music);
+                audio_service_.SetStreamMode(music);   // gaps in a stream are counted (/api/status audio_underruns)
                 Schedule([this]() {
                     aborted_ = false;
                     SetDeviceState(kDeviceStateSpeaking);

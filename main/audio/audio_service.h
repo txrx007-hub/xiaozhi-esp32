@@ -40,7 +40,9 @@
 #define OPUS_FRAME_DURATION_MS 60
 #define MAX_ENCODE_TASKS_IN_QUEUE 2
 #define MAX_PLAYBACK_TASKS_IN_QUEUE 2
-#define MAX_DECODE_PACKETS_IN_QUEUE (1200 / OPUS_FRAME_DURATION_MS)
+// local: 3 s instead of 1.2 s of incoming packets (compressed, a few KB per second). A Wi-Fi gap then drains the buffer instead of the sound, and the burst after
+// a stall fits in it (a packet that finds the queue full is dropped). The server builds up a lead of 15 packets for music and radio (sendAudioHandle.py).
+#define MAX_DECODE_PACKETS_IN_QUEUE (3000 / OPUS_FRAME_DURATION_MS)
 #define MAX_SEND_PACKETS_IN_QUEUE (2400 / OPUS_FRAME_DURATION_MS)
 #define AUDIO_TESTING_MAX_DURATION_MS 10000
 #define MAX_TIMESTAMPS_IN_QUEUE 3
@@ -127,6 +129,12 @@ public:
     bool IsPlaybackIdle();
     // Milliseconds since the last chunk of sound was handed to the speaker (large when nothing has played). The board's talking movements follow it.
     int64_t MsSinceLastOutput() const;
+    // local: music / radio health since boot. A gap is the output task finding nothing to play for 90 ms or more in the middle of a stream (after at least 1.2 s
+    // of unbroken sound); only counted while the server says the speaking audio is music (SetStreamMode, from the "tts start" message).
+    void SetStreamMode(bool on) { stream_mode_ = on; }
+    uint32_t Underruns() const { return underruns_; }
+    uint32_t WorstGapMs() const { return worst_gap_ms_; }
+    uint32_t DroppedPackets() const { return dropped_packets_; }
     bool IsWakeWordRunning() const {
         return xEventGroupGetBits(event_group_) & AS_EVENT_WAKE_WORD_RUNNING;
     }
@@ -216,6 +224,11 @@ private:
     esp_timer_handle_t audio_power_timer_ = nullptr;
     std::chrono::steady_clock::time_point last_input_time_;
     std::chrono::steady_clock::time_point last_output_time_;
+    std::atomic<bool> stream_mode_{false};
+    std::atomic<uint32_t> underruns_{0};
+    std::atomic<uint32_t> worst_gap_ms_{0};
+    std::atomic<uint32_t> dropped_packets_{0};   // incoming packets that found the decode queue full
+    int steady_frames_ = 0;                      // frames played back to back (output task only)
 
     void AudioInputTask();
     void AudioOutputTask();

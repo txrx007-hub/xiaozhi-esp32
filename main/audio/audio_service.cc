@@ -341,6 +341,24 @@ void AudioService::AudioOutputTask() {
         audio_queue_cv_.notify_all();
         lock.unlock();
 
+        if (stream_mode_.load()) {   // local: count gaps in the middle of a music / radio stream
+            const auto gap_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - last_output_time_).count();
+            if (gap_ms < 90) {
+                ++steady_frames_;
+            } else {
+                if (steady_frames_ >= 20 && gap_ms < 3000) {
+                    ++underruns_;
+                    if (static_cast<uint32_t>(gap_ms) > worst_gap_ms_.load()) {
+                        worst_gap_ms_ = static_cast<uint32_t>(gap_ms);
+                    }
+                }
+                steady_frames_ = 0;
+            }
+        } else {
+            steady_frames_ = 0;
+        }
+
         if (!codec_->output_enabled()) {
             esp_timer_stop(audio_power_timer_);
             esp_timer_start_periodic(audio_power_timer_, AUDIO_POWER_CHECK_INTERVAL_MS * 1000);
@@ -619,6 +637,7 @@ bool AudioService::PushPacketToDecodeQueue(std::unique_ptr<AudioStreamPacket> pa
                        audio_decode_queue_.size() < MAX_DECODE_PACKETS_IN_QUEUE;
             });
         } else {
+            ++dropped_packets_;   // local: counted, shown in /api/status
             return false;
         }
     }

@@ -236,6 +236,12 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     }
     cJSON_AddNumberToObject(root, "wifi_disconnects", walle_health::WifiDisconnects());   // since boot, and why the last one happened
     cJSON_AddNumberToObject(root, "wifi_last_reason", walle_health::LastDisconnectReason());
+    {   // music and radio, since boot: gaps in a stream, the longest one (ms), and packets dropped because the robot's buffer was full
+        auto& audio = Application::GetInstance().GetAudioService();
+        cJSON_AddNumberToObject(root, "audio_underruns", audio.Underruns());
+        cJSON_AddNumberToObject(root, "audio_worst_gap_ms", audio.WorstGapMs());
+        cJSON_AddNumberToObject(root, "audio_dropped", audio.DroppedPackets());
+    }
     if (const float temp = walle_health::ChipTempC(); !std::isnan(temp)) {
         cJSON_AddNumberToObject(root, "chip_temp_c", std::round(static_cast<double>(temp) * 10.0) / 10.0);   // the die, not the room
     }

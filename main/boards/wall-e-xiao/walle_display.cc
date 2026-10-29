@@ -311,7 +311,8 @@ void WalleDisplay::CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars) {
     }
     // As tall as the stock icon's line, so the top bar keeps its height; proportions of the example picture (bar about 0.19 of the height, gap about 0.09, heights 1/5 .. 5/5)
     const lv_font_t* font = lv_obj_get_style_text_font(network_label_, LV_PART_MAIN);
-    const int h = std::clamp(font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16, 12, 24);
+    const int line = std::clamp(font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16, 12, 24);
+    const int h = (line * 4 + 2) / 5;   // 20% smaller than the stock icon's line (a 16 px line gives 13 px bars)
     const int bar_w = std::max(2, (h + 2) / 5);
     const int gap = std::max(1, (h + 5) / 10);
     const int total_w = kWifiBars * bar_w + (kWifiBars - 1) * gap;

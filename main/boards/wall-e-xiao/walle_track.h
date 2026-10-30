@@ -32,6 +32,8 @@ std::expected<Face, std::string> Look();
 std::expected<std::string, std::string> FaceMe();
 // Same, but on the worker task (for the settings page and the app): returns at once.
 void FaceMeLater();
+// The greeter: FaceMe on the worker task, then Application::DeviceCall(text) - but only when it ended facing a face (nobody there any more: nothing is said).
+void FaceMeThenCall(const std::string& text);
 
 // True while a look or a correction is under way; the talking movements wait for it.
 bool Busy();

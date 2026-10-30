@@ -50,6 +50,9 @@ constexpr float kOvershoot = 0.6f;   // a correction against the previous one is
 std::mutex g_mutex;                  // one look-and-turn sequence at a time (one-shot or follow step)
 std::atomic<bool> g_busy{false};
 std::atomic<bool> g_oneshot{false};
+std::atomic<bool> g_faced{false};    // the last FaceMe ended facing a face
+std::mutex g_call_mutex;
+std::string g_call_text;             // FaceMeThenCall: what to say once facing the face (empty: nothing)
 TaskHandle_t g_task = nullptr;
 int g_last_direction = 0;            // -1 = turned left, +1 = turned right, 0 = unknown (forgotten after a pause)
 int64_t g_last_turn_us = 0;
@@ -264,6 +267,7 @@ std::expected<std::string, std::string> FaceMe() {
 
     // (the caller wakes Jarvis from a nap first: that must happen on the main task)
     g_last_direction = 0;
+    g_faced = false;
     g_pending.valid = false;
     g_stale_view = true;   // the first picture must be a fresh one, not the last frame from whenever the camera was last used
     bool turned = false;
@@ -296,6 +300,7 @@ std::expected<std::string, std::string> FaceMe() {
         const Plan plan = PlanTurn(face->x);
         ESP_LOGI(TAG, "Picture %d of %d: face at %.2f (width %.2f, %d seen): %d ms at %d%%", look, kMaxLooks, face->x, face->width, face->count, plan.ms, plan.power);
         if (plan.ms == 0) {
+            g_faced = true;
             return std::string(turned ? "I am facing you now." : "I am already facing you.");
         }
         if (!Turn(*face, plan)) {
@@ -307,6 +312,7 @@ std::expected<std::string, std::string> FaceMe() {
     if (!seen) {
         return std::string("I looked around but I cannot see a face. Step in front of me, in the light, and ask again.");
     }
+    g_faced = true;   // the last turn was towards the face (four pictures used up)
     return std::string("I turned towards you.");
 }
 
@@ -363,6 +369,15 @@ void TrackTask(void*) {
         if (g_oneshot.exchange(false)) {
             auto result = FaceMe();
             ESP_LOGI(TAG, "Face me: %s", result ? result->c_str() : result.error().c_str());
+            std::string text;
+            {
+                std::lock_guard<std::mutex> lock(g_call_mutex);
+                text.swap(g_call_text);
+            }
+            if (!text.empty()) {   // the greeter: speak only when it ended facing you
+                const bool said = result && g_faced && Application::GetInstance().DeviceCall(text);
+                ESP_LOGI(TAG, "Greeting after Face me: %s", said ? "spoken" : "not spoken (no face at the end, or not idle)");
+            }
             continue;
         }
         if (!settings.GetBool("follow_mode") || !CanFollowNow()) {
@@ -425,6 +440,14 @@ void Wake() {
 void FaceMeLater() {
     g_oneshot = true;
     Wake();
+}
+
+void FaceMeThenCall(const std::string& text) {
+    {
+        std::lock_guard<std::mutex> lock(g_call_mutex);
+        g_call_text = text;
+    }
+    FaceMeLater();
 }
 
 // Every 100 ms (a timer of its own). The "Speaking" state starts well before the first word comes out of the speaker (the server's first sentence

@@ -611,7 +611,8 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     return ESP_OK;
 }
 
-// POST /api/call  body {"text": "Good morning, Alex. It's 7:42 currently."}: the robot wakes up and says the text (the greeter on the voice server asks for this when it sees you).
+// POST /api/call  body {"text": "Good morning, Alex. It's 7:42 currently.", "face": true}: the robot wakes up and says the text (the greeter in the panel asks for this when it
+// sees you). With "face": true it first turns to the face (Face me, which only turns when the face is off centre) and speaks only when it ended facing it.
 // Only when the robot is idle: not napping, not ringing, not in a conversation (answer {"ok": false, "message": why}). The voice server speaks the text and keeps it in the
 // conversation, so the answer to it is understood. The text goes into a JSON line as it is, so quotes, backslashes and control characters are dropped here.
 esp_err_t PostCallHandler(httpd_req_t* req) {
@@ -622,6 +623,7 @@ esp_err_t PostCallHandler(httpd_req_t* req) {
     }
     cJSON* root = cJSON_Parse(body.c_str());
     const cJSON* text_item = root ? cJSON_GetObjectItem(root, "text") : nullptr;
+    const bool face_first = root != nullptr && cJSON_IsTrue(cJSON_GetObjectItem(root, "face"));
     std::string text;
     if (cJSON_IsString(text_item) && text_item->valuestring != nullptr) {
         for (const char* p = text_item->valuestring; *p != '\0' && text.size() < 200; ++p) {
@@ -644,12 +646,18 @@ esp_err_t PostCallHandler(httpd_req_t* req) {
         why = "napping";
     } else if (board.IsRinging()) {
         why = "ringing";
+    } else if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
+        why = "busy (not idle)";
+    } else if (face_first && walle_track::Busy()) {
+        why = "busy (already turning)";
+    } else if (face_first) {
+        walle_track::FaceMeThenCall(text);
     } else if (!Application::GetInstance().DeviceCall(text)) {
         why = "busy (not idle)";
     }
     cJSON* out = cJSON_CreateObject();
     cJSON_AddBoolToObject(out, "ok", why == nullptr);
-    cJSON_AddStringToObject(out, "message", why == nullptr ? "Speaking." : why);
+    cJSON_AddStringToObject(out, "message", why != nullptr ? why : face_first ? "Turning to you, then speaking." : "Speaking.");
     return SendJson(req, out);
 }
 

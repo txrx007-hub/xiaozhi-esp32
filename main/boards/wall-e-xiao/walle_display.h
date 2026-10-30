@@ -173,7 +173,10 @@ private:
     int wifi_level_ = 0;          // bars lit: 0 (no link) .. kWifiBars
     int wifi_rssi_avg_ = 0;       // smoothed signal strength in dBm, 0 = none yet
     int64_t wifi_read_us_ = 0;
+    int wifi_dx_ = 0;             // how far the icon is drawn from where the top bar's layout puts it (up and left, to sit in the corner)
+    int wifi_dy_ = 0;
     void CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars);
+    void PlaceWifiCorner();       // works out wifi_dx_ / wifi_dy_ from where the layout put the eyes' icon, and moves it (display lock held)
     void PaintWifiBars();         // colours the bars for wifi_level_ (display lock held)
     void UpdateWifiBars();        // reads the signal (at most every 4 s) and repaints on a change
     bool mute_on_ = false;

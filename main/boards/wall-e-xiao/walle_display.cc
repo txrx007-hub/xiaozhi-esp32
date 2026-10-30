@@ -36,9 +36,13 @@ constexpr uint32_t kClockOn = 0x2ee6d6;
 constexpr uint32_t kClockGhost = 0x0d2a2c;
 constexpr uint32_t kClockText = 0x7ee7df;
 
-// Wi-Fi bars: a lit bar is white, an unlit one the dark grey of the example picture (it stands out from the black screen)
-constexpr uint32_t kWifiOn = 0xffffff;
+// Wi-Fi bars: a lit bar has its own colour, smallest to tallest red, orange, dark orange, green, bright green (a full, good signal);
+// an unlit one is the dark grey of the example picture (it stands out from the black screen)
+constexpr uint32_t kWifiLit[] = {0xe53935, 0xff9800, 0xe65100, 0x43a047, 0x22ee66};
 constexpr uint32_t kWifiOff = 0x4b4b4b;
+// Where the icon's top left corner sits on the screen: the top bar's padding (8 px left, 4 px and the row's slack above) wasted pixels
+constexpr int kWifiLeft = 2;
+constexpr int kWifiTop = 2;
 
 // 7-segment layout: digit box and segment thickness
 constexpr int kDigitW = 44;
@@ -296,6 +300,7 @@ void WalleDisplay::SetupUI() {
     CreateRibbon();
     CreateVisuals();
     CreateWifiBars(network_label_, wifi_bars_);   // over the stock font icon, which stays in place as an invisible spacer
+    PlaceWifiCorner();
     CreateClock();
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
     CreateMuteIcon();
@@ -312,9 +317,10 @@ void WalleDisplay::CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars) {
     // As tall as the stock icon's line, so the top bar keeps its height; proportions of the example picture (bar about 0.19 of the height, gap about 0.09, heights 1/5 .. 5/5)
     const lv_font_t* font = lv_obj_get_style_text_font(network_label_, LV_PART_MAIN);
     const int line = std::clamp(font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16, 12, 24);
-    const int h = (line * 4 + 2) / 5;   // 20% smaller than the stock icon's line (a 16 px line gives 13 px bars)
-    const int bar_w = std::max(2, (h + 2) / 5);
-    const int gap = std::max(1, (h + 5) / 10);
+    const int h_20 = (line * 4 + 2) / 5;   // 20% smaller than the stock icon's line (a 16 px line gives 13 px)
+    const int bar_w = std::max(2, (h_20 + 2) / 5);   // width and gaps stay as they were at that height ...
+    const int gap = std::max(1, (h_20 + 5) / 10);
+    const int h = (h_20 * 9 + 5) / 10;     // ... and the height is 10% less again (13 px gives 12 px)
     const int total_w = kWifiBars * bar_w + (kWifiBars - 1) * gap;
     lv_label_set_long_mode(holder, LV_LABEL_LONG_CLIP);
     lv_obj_set_size(holder, total_w, h);
@@ -326,9 +332,27 @@ void WalleDisplay::CreateWifiBars(lv_obj_t* holder, lv_obj_t** bars) {
     }
 }
 
+void WalleDisplay::PlaceWifiCorner() {
+    if (network_label_ == nullptr) {
+        return;
+    }
+    // The top bar pads its icons (8 px from the left edge, 4 px from the top, plus the row's slack above a bar shorter than the row): draw the icon
+    // up and left by the difference, so that its smallest bar starts kWifiLeft px from the left edge and its tallest kWifiTop px from the top.
+    // translate only moves the drawing, the layout (and what is placed relative to the icon's box) stays as it was.
+    lv_obj_set_style_translate_x(network_label_, 0, 0);
+    lv_obj_set_style_translate_y(network_label_, 0, 0);
+    lv_obj_update_layout(network_label_);
+    lv_area_t a;
+    lv_obj_get_coords(network_label_, &a);
+    wifi_dx_ = kWifiLeft - a.x1;
+    wifi_dy_ = kWifiTop - a.y1;
+    lv_obj_set_style_translate_x(network_label_, wifi_dx_, 0);
+    lv_obj_set_style_translate_y(network_label_, wifi_dy_, 0);
+}
+
 void WalleDisplay::PaintWifiBars() {
     for (int i = 0; i < kWifiBars; ++i) {
-        const lv_color_t colour = lv_color_hex(wifi_level_ > i ? kWifiOn : kWifiOff);
+        const lv_color_t colour = lv_color_hex(wifi_level_ > i ? kWifiLit[i] : kWifiOff);
         if (wifi_bars_[i] != nullptr) {
             lv_obj_set_style_bg_color(wifi_bars_[i], colour, 0);
         }
@@ -1180,7 +1204,7 @@ void WalleDisplay::PlaceMuteIcon() {
         lv_area_t a;
         lv_obj_get_coords(network_label_, &a);
         if (a.x2 > 0 && a.x2 < width_ / 2) {
-            x = a.x2 + 6;
+            x = a.x2 + wifi_dx_ + 6;   // the icon is drawn wifi_dx_ left of its box
         }
     }
     lv_obj_set_pos(mute_icon_, x, 3);
@@ -1251,6 +1275,8 @@ void WalleDisplay::CreateClock() {
     // The eyes' Wi-Fi icon, repeated on the clock in the same place (placed while the clock shows; the bars are repainted with the eyes' ones)
     clock_wifi_ = MakeLabel(clock_root_, &BUILTIN_ICON_FONT, 0xffffff, "");
     CreateWifiBars(clock_wifi_, clock_wifi_bars_);
+    lv_obj_set_style_translate_x(clock_wifi_, wifi_dx_, 0);   // the same shift into the corner as on the eyes
+    lv_obj_set_style_translate_y(clock_wifi_, wifi_dy_, 0);
     PaintWifiBars();
 
     lv_obj_add_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);

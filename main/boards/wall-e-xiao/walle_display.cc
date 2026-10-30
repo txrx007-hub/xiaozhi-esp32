@@ -336,9 +336,11 @@ void WalleDisplay::PlaceWifiCorner() {
     if (network_label_ == nullptr) {
         return;
     }
-    // The top bar pads its icons (8 px from the left edge, 4 px from the top, plus the row's slack above a bar shorter than the row): draw the icon
-    // up and left by the difference, so that its smallest bar starts kWifiLeft px from the left edge and its tallest kWifiTop px from the top.
-    // translate only moves the drawing, the layout (and what is placed relative to the icon's box) stays as it was.
+    // The top bar pads its icons (8 px from the left edge, 4 px from the top, plus the row's slack above a bar shorter than the row) and the row grows or
+    // shrinks when the icons on its right change: draw the eyes' icon up and left by the difference, so that its smallest bar starts kWifiLeft px from the left
+    // edge and its tallest kWifiTop px from the top. translate only moves the drawing, the layout (and what is placed relative to the icon's box) stays as it was.
+    // Done again with every status bar update, so the icon stays in the corner when the row changes; the clock's copy is put at the same screen place from
+    // the same reading, so the two cannot drift apart.
     lv_obj_set_style_translate_x(network_label_, 0, 0);
     lv_obj_set_style_translate_y(network_label_, 0, 0);
     lv_obj_update_layout(network_label_);
@@ -348,6 +350,13 @@ void WalleDisplay::PlaceWifiCorner() {
     wifi_dy_ = kWifiTop - a.y1;
     lv_obj_set_style_translate_x(network_label_, wifi_dx_, 0);
     lv_obj_set_style_translate_y(network_label_, wifi_dy_, 0);
+    if (clock_wifi_ != nullptr && clock_root_ != nullptr) {
+        lv_area_t r;
+        lv_obj_get_coords(clock_root_, &r);
+        lv_obj_set_style_translate_x(clock_wifi_, 0, 0);
+        lv_obj_set_style_translate_y(clock_wifi_, 0, 0);
+        lv_obj_set_pos(clock_wifi_, kWifiLeft - r.x1, kWifiTop - r.y1);
+    }
 }
 
 void WalleDisplay::PaintWifiBars() {
@@ -391,6 +400,10 @@ void WalleDisplay::UpdateWifiBars() {
 void WalleDisplay::UpdateStatusBar(bool update_all) {
     SpiLcdDisplay::UpdateStatusBar(update_all);
     UpdateWifiBars();
+    {
+        DisplayLockGuard lock(this);
+        PlaceWifiCorner();
+    }
 }
 
 int WalleDisplay::Fps() {
@@ -1275,9 +1288,8 @@ void WalleDisplay::CreateClock() {
     // The eyes' Wi-Fi icon, repeated on the clock in the same place (placed while the clock shows; the bars are repainted with the eyes' ones)
     clock_wifi_ = MakeLabel(clock_root_, &BUILTIN_ICON_FONT, 0xffffff, "");
     CreateWifiBars(clock_wifi_, clock_wifi_bars_);
-    lv_obj_set_style_translate_x(clock_wifi_, wifi_dx_, 0);   // the same shift into the corner as on the eyes
-    lv_obj_set_style_translate_y(clock_wifi_, wifi_dy_, 0);
     PaintWifiBars();
+    PlaceWifiCorner();
 
     lv_obj_add_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1403,11 +1415,8 @@ void WalleDisplay::ShowIdleClock(bool show) {
     {
         DisplayLockGuard lock(this);
         if (show) {
-            if (clock_wifi_ != nullptr && network_label_ != nullptr) {   // exactly where the eyes have it
-                lv_area_t a;
-                lv_obj_get_coords(network_label_, &a);
-                lv_obj_set_pos(clock_wifi_, a.x1, a.y1);
-            }
+            PlaceWifiCorner();   // exactly where the eyes have it (the clock's copy is put at the same screen place)
+            PaintWifiBars();     // and in the same colours
             lv_obj_remove_flag(clock_root_, LV_OBJ_FLAG_HIDDEN);
             if (status_dot_ != nullptr) {
                 lv_obj_move_foreground(status_dot_);

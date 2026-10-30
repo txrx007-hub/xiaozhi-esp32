@@ -611,6 +611,48 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// POST /api/call  body {"text": "Good morning, Alex. It's 7:42 currently."}: the robot wakes up and says the text (the greeter on the voice server asks for this when it sees you).
+// Only when the robot is idle: not napping, not ringing, not in a conversation (answer {"ok": false, "message": why}). The voice server speaks the text and keeps it in the
+// conversation, so the answer to it is understood. The text goes into a JSON line as it is, so quotes, backslashes and control characters are dropped here.
+esp_err_t PostCallHandler(httpd_req_t* req) {
+    std::string body;
+    if (!ReadBody(req, body)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad request body");
+        return ESP_FAIL;
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    const cJSON* text_item = root ? cJSON_GetObjectItem(root, "text") : nullptr;
+    std::string text;
+    if (cJSON_IsString(text_item) && text_item->valuestring != nullptr) {
+        for (const char* p = text_item->valuestring; *p != '\0' && text.size() < 200; ++p) {
+            const unsigned char c = static_cast<unsigned char>(*p);
+            if (c >= 32 && c != '"' && c != '\\') {
+                text += static_cast<char>(c);
+            }
+        }
+    }
+    if (root) cJSON_Delete(root);
+    if (text.empty()) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "expected {\"text\": \"what to say\"}");
+        return ESP_FAIL;
+    }
+    auto& board = WallEBoard::Get();
+    const char* why = nullptr;
+    if (!walle_server::IsCustom()) {
+        why = "this needs your own voice server";
+    } else if (board.IsNapping()) {
+        why = "napping";
+    } else if (board.IsRinging()) {
+        why = "ringing";
+    } else if (!Application::GetInstance().DeviceCall(text)) {
+        why = "busy (not idle)";
+    }
+    cJSON* out = cJSON_CreateObject();
+    cJSON_AddBoolToObject(out, "ok", why == nullptr);
+    cJSON_AddStringToObject(out, "message", why == nullptr ? "Speaking." : why);
+    return SendJson(req, out);
+}
+
 // POST /api/server  body {"server": "192.168.1.20" | "name.local" | "host:port" | "default"}.
 // Saves the voice server and reboots the robot ~1.5 s after the answer is out. From the page only
 // LAN addresses or "default" (cloud) are accepted - see walle_server.h for why.
@@ -691,6 +733,7 @@ void Start() {
         {.uri = "/api/ping", .method = HTTP_GET, .handler = GetPingHandler, .user_ctx = nullptr},
         {.uri = "/api/drive", .method = HTTP_POST, .handler = PostDriveHandler, .user_ctx = nullptr},
         {.uri = "/api/power", .method = HTTP_POST, .handler = PostPowerHandler, .user_ctx = nullptr},
+        {.uri = "/api/call", .method = HTTP_POST, .handler = PostCallHandler, .user_ctx = nullptr},
         {.uri = "/api/server", .method = HTTP_POST, .handler = PostServerHandler, .user_ctx = nullptr},
         {.uri = "/api/volume", .method = HTTP_POST, .handler = PostVolumeHandler, .user_ctx = nullptr},
         {.uri = "/api/photo", .method = HTTP_POST, .handler = PostPhotoHandler, .user_ctx = nullptr},

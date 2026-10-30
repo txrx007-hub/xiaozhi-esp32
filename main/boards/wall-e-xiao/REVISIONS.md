@@ -2,13 +2,14 @@
 
 One number for the whole project. The **revision** goes up by one with every firmware build that is archived (`walle-backup\builds\<n>-<label>`), and every
 git repository of the project carries a tag `rev-<n>` at the commit that belongs to it. The number is built into the firmware (`walle_revision.h`,
-`WALLE_REVISION`), reported as `revision` in `/api/status`, shown bottom-left as **Rev <n>** next to the app version ("App v2.37 - Rev 92") and at the bottom of the landing page, and printed in the boot log
-(`Jarvis is ready (revision 92)`).
+`WALLE_REVISION`), reported as `revision` in `/api/status`, shown bottom-left as **Rev <n>** next to the app version ("App v2.37 - Rev 93") and at the bottom of the landing page, and printed in the boot log
+(`Jarvis is ready (revision 93)`).
 
 The app and the backend keep their own version names (app `versionName`, backend snapshot folders); this table says which of them went with which revision.
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 93 | 2026-10-30 | The greeter: `POST /api/call` wakes the robot and has the voice server say a text (`[device_call]`); the clock's Wi-Fi icon sits exactly where the eyes' one does, in the same colours | 2.37 | backend: greeter (`greeter.py`, panel card), face finder `?presence=1` |
 | 92 | 2026-10-30 | The Wi-Fi icon sits in the top left corner (2 px from the edges, it wasted pixels there), 10% lower (12 px), same width; each lit bar has its own colour: red, orange, dark orange, green, bright green | 2.37 | backend (no firmware change, no revision of its own): voice recognition label only, memory notes per speaker |
 | 91 | 2026-10-29 | The Wi-Fi bars are 20% smaller (13 px high instead of 16) | 2.37 | |
 | 90 | 2026-10-29 | Music and radio stutter less: the robot keeps 3 s of incoming audio (was 1.2 s) and counts gaps in a stream and dropped packets (`audio_underruns`, `audio_worst_gap_ms`, `audio_dropped` in `/api/status`); includes the Wi-Fi bars of 89 | 2.37 | backend: lead of 15 packets for music and radio, radio buffer, `Audio:` line in the daily summary |

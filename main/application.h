@@ -110,6 +110,7 @@ public:
 
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
+    bool DeviceCall(const std::string& text);   // WALL-E: wake up and have the server speak this text first (the greeter); false when not idle
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);

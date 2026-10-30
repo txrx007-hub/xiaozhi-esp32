@@ -1314,6 +1314,36 @@ void Application::WakeWordInvoke(const std::string& wake_word) {
     }
 }
 
+// WALL-E: the voice server asks for a spoken first sentence (the greeter). The same steps as a wake word - connecting, open the audio channel, listening - but the
+// message to the server is "[device_call] <text>": the server speaks <text> at once and keeps it in the conversation, so the answer to it is understood. (This build
+// sends no wake word text for a normal wake-up, CONFIG_SEND_WAKE_WORD_DATA is off, so this does not go through WakeWordInvoke.) Refused unless the robot is idle,
+// so it never interrupts anything; the text must not hold quotes, backslashes or control characters (it goes into a JSON line as it is).
+bool Application::DeviceCall(const std::string& text) {
+    if (!protocol_ || text.empty() || GetDeviceState() != kDeviceStateIdle) {
+        return false;
+    }
+    Schedule([this, text]() {
+        if (GetDeviceState() != kDeviceStateIdle || !SetDeviceState(kDeviceStateConnecting)) {
+            return;
+        }
+        // Like BeginWakeWordInvoke: let the state change reach the screen first, OpenAudioChannel may block for about a second.
+        Schedule([this, text]() {
+            if (GetDeviceState() != kDeviceStateConnecting) {
+                return;
+            }
+            Board::GetInstance().SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+            if (!protocol_->IsAudioChannelOpened() && !protocol_->OpenAudioChannel()) {
+                SetDeviceState(kDeviceStateIdle);
+                return;
+            }
+            ESP_LOGI(TAG, "Device call: %s", text.c_str());
+            protocol_->SendWakeWordDetected("[device_call] " + text);
+            SetListeningMode(GetDefaultListeningMode());
+        });
+    });
+    return true;
+}
+
 bool Application::CanEnterSleepMode() {
     if (GetDeviceState() != kDeviceStateIdle) {
         return false;

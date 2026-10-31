@@ -178,6 +178,37 @@ bool Turn(const Face& face, const Plan& plan) {
     return true;
 }
 
+std::atomic<bool> g_gazing{false};   // the eyes are looking away from straight ahead
+int g_gaze_misses = 0;               // looks in a row without a face (the eyes go back to the middle after two)
+
+// The eyes look at a face (nullptr or not found: straight ahead). The settings eyes_range (sideways) and eyes_range_y (up and down) are how far they slide, in
+// pixels: the eye shapes are about 200 px wide on the 240 px screen, so sideways they have little room before their edge is cut off, up and down much more
+// (measured over all faces: 13 px left and right, 32 px up and 52 px down at worst, 72 / 81 for the neutral face). The camera picture is mirrored
+// against the wheels (face_invert) and so against the screen too: a face on the right of the picture is on the user's right, and the eyes slide right (eyes_invert
+// swaps that). A face high in the picture is looked up at.
+void GazeAt(const Face* face) {
+    auto* display = WallEBoard::Get().walle_display();
+    if (display == nullptr) {
+        return;
+    }
+    if (face == nullptr || !face->found) {
+        if (g_gazing.exchange(false)) {
+            display->SetGaze(0, 0);
+        }
+        return;
+    }
+    auto& settings = WalleSettings::GetInstance();
+    const float range_x = static_cast<float>(settings.GetInt("eyes_range"));
+    const float range_y = static_cast<float>(settings.GetInt("eyes_range_y"));
+    const float sign = settings.GetBool("eyes_invert") ? -1.0f : 1.0f;
+    // A face seldom reaches the very edge of the picture: the eyes reach their full travel when it is 60% of the way out. Nearly straight ahead: straight ahead.
+    auto lead = [](float v) { return std::fabs(v) < 0.06f ? 0.0f : std::clamp(v * 1.6f, -1.0f, 1.0f); };
+    const int dx = static_cast<int>(std::lround(lead(face->x) * sign * range_x));
+    const int dy = static_cast<int>(std::lround(lead(face->y) * range_y));
+    g_gazing = dx != 0 || dy != 0;
+    display->SetGaze(dx, dy);
+}
+
 }  // namespace
 
 bool Busy() { return g_busy.load(); }
@@ -252,6 +283,7 @@ std::expected<Face, std::string> Look() {
     }
     face.found = cJSON_IsTrue(cJSON_GetObjectItem(root, "found"));
     face.x = std::clamp(NumberOr(root, "x", 0), -1.0f, 1.0f);
+    face.y = std::clamp(NumberOr(root, "y", 0), -1.0f, 1.0f);
     face.width = NumberOr(root, "w", 0);
     face.count = static_cast<int>(NumberOr(root, "n", face.found ? 1 : 0));
     cJSON_Delete(root);
@@ -270,6 +302,14 @@ std::expected<std::string, std::string> FaceMe() {
     g_faced = false;
     g_pending.valid = false;
     g_stale_view = true;   // the first picture must be a fresh one, not the last frame from whenever the camera was last used
+    // The eyes look at the face while Jarvis turns to it, and are straight ahead again at the end (unless eyes_follow keeps them on the face).
+    struct EyesBack {
+        ~EyesBack() {
+            if (!WalleSettings::GetInstance().GetBool("eyes_follow")) {
+                GazeAt(nullptr);
+            }
+        }
+    } eyes_back;
     bool turned = false;
     bool seen = false;
     for (int look = 1; look <= kMaxLooks; ++look) {
@@ -278,6 +318,7 @@ std::expected<std::string, std::string> FaceMe() {
             return std::unexpected(face.error());
         }
         Learn(*face);
+        GazeAt(&*face);
         if (!face->found) {
             if (seen) {
                 return std::string("I turned, but now I cannot see your face. Step in front of me.");
@@ -306,6 +347,7 @@ std::expected<std::string, std::string> FaceMe() {
         if (!Turn(*face, plan)) {
             return std::unexpected("Stopped while turning.");
         }
+        GazeAt(nullptr);   // turned: the face is now (nearly) straight ahead
         turned = true;
         vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     }
@@ -318,9 +360,9 @@ std::expected<std::string, std::string> FaceMe() {
 
 namespace {
 
-// One look and at most one correction, while follow mode is on. Quiet: no result, no speech.
-// Returns true when a face was seen.
-bool FollowStep() {
+// One look while follow mode or eyes_follow is on. The eyes look at the face; with move (follow mode) there is also at most one correction of the wheels.
+// Quiet: no result, no speech. Returns true when a face was seen.
+bool FollowStep(bool move) {
     std::unique_lock<std::mutex> lock(g_mutex, std::try_to_lock);
     if (!lock.owns_lock()) {
         return true;
@@ -335,27 +377,45 @@ bool FollowStep() {
         ESP_LOGW(TAG, "Follow: %s", face.error().c_str());
         return false;
     }
-    Learn(*face);
+    if (move) {
+        Learn(*face);
+    }
     if (!face->found) {
+        if (++g_gaze_misses >= 2) {
+            GazeAt(nullptr);   // nobody there any more: the eyes look straight ahead again
+        }
         return false;
+    }
+    g_gaze_misses = 0;
+    GazeAt(&*face);
+    if (!move) {
+        return true;
     }
     const Plan plan = PlanTurn(face->x);
     if (plan.ms == 0) {
         return true;
     }
     Turn(*face, plan);
+    GazeAt(nullptr);   // turned: the face is now (nearly) straight ahead
     vTaskDelay(pdMS_TO_TICKS(kSettleMs));
     return true;
 }
 
-// Follow mode only moves while Jarvis is idle: not during a conversation (the wheels would be heard and the Wi-Fi is busy),
-// not asleep, not during an alarm.
-bool CanFollowNow() {
+// Tracking only happens while Jarvis is idle: not during a conversation (the wheels would be heard and the Wi-Fi is busy), not asleep, not during an alarm.
+// With move (follow mode) the wheels must also be free. Eyes only (move false): the eyes must be what the screen shows, otherwise there is nothing to move.
+bool CanFollowNow(bool move) {
     auto& board = WallEBoard::Get();
     if (Application::GetInstance().GetDeviceState() != kDeviceStateIdle) {
         return false;
     }
-    return !board.IsNapping() && !board.IsRinging() && board.NetworkConnected() && !board.motors().IsBusy();
+    if (board.IsNapping() || board.IsRinging() || !board.NetworkConnected()) {
+        return false;
+    }
+    if (move) {
+        return !board.motors().IsBusy();
+    }
+    auto* display = board.walle_display();
+    return display != nullptr && display->EyesVisible();
 }
 
 void TrackTask(void*) {
@@ -363,8 +423,9 @@ void TrackTask(void*) {
     while (true) {
         auto& settings = WalleSettings::GetInstance();
         const bool follow = settings.GetBool("follow_mode");
+        const bool eyes = settings.GetBool("eyes_follow") && walle_server::IsCustom();   // finding the face needs the own server
         // After a few looks without a face, look less often: nobody is there.
-        const int wait_ms = follow ? settings.GetInt("follow_ms") * (misses >= 5 ? 4 : 1) : 1000;
+        const int wait_ms = (follow || eyes) ? settings.GetInt("follow_ms") * (misses >= 5 ? 4 : 1) : 1000;
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_ms));
         if (g_oneshot.exchange(false)) {
             auto result = FaceMe();
@@ -380,11 +441,17 @@ void TrackTask(void*) {
             }
             continue;
         }
-        if (!settings.GetBool("follow_mode") || !CanFollowNow()) {
+        const bool move = settings.GetBool("follow_mode");
+        const bool look = move || (settings.GetBool("eyes_follow") && walle_server::IsCustom());
+        if (!look || !CanFollowNow(move)) {
             misses = 0;
+            g_gaze_misses = 0;
+            if (!g_busy) {   // (a Face me from the voice tools is under way: it looks after the eyes itself)
+                GazeAt(nullptr);   // not tracking (switched off, or a conversation, a nap, the clock): the eyes look straight ahead
+            }
             continue;
         }
-        misses = FollowStep() ? 0 : misses + 1;
+        misses = FollowStep(move) ? 0 : misses + 1;
     }
 }
 

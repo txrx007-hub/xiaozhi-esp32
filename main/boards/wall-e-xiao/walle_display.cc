@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -987,7 +988,11 @@ void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
         return;
     }
     DisplayLockGuard lock(this);
-    if (emotion == "surprised") {
+    const int32_t chosen = eye_color_.load();
+    if (chosen >= 0) {   // the user's colour, for every face (it also wins over the random colour of the surprised face)
+        lv_obj_set_style_image_recolor(emoji_image_, lv_color_hex(static_cast<uint32_t>(chosen)), 0);
+        lv_obj_set_style_image_recolor_opa(emoji_image_, LV_OPA_COVER, 0);
+    } else if (emotion == "surprised") {
         static constexpr uint32_t kSurprisedColors[] = {
             0xff3b30,  // red
             0xff9500,  // orange
@@ -1006,6 +1011,16 @@ void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
     } else {
         lv_obj_set_style_image_recolor_opa(emoji_image_, LV_OPA_TRANSP, 0);
     }
+}
+
+void WalleDisplay::SetEyeColor(int32_t rgb) {
+    eye_color_ = rgb;
+    std::string emotion;
+    {
+        std::lock_guard<std::mutex> lock(emotion_mutex_);
+        emotion = auto_emotion_;
+    }
+    ApplyEmotionRecolor(emotion);   // the face on the screen now changes at once (the next faces get it when they are shown)
 }
 
 void WalleDisplay::SetEmotion(const char* emotion) {
@@ -1236,6 +1251,50 @@ void WalleDisplay::SetMuteIcon(bool on) {
     } else {
         lv_obj_add_flag(mute_icon_, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+// The eye picture (emoji_box_) is translated, which moves it without touching the layout; the GIFs are drawn on black, so the slid picture shows no edge.
+void WalleDisplay::GazeStep(void* var, int32_t value) {
+    auto* self = static_cast<WalleDisplay*>(var);
+    self->gaze_x_ = self->gaze_from_x_ + (self->gaze_to_x_ - self->gaze_from_x_) * value / 256;
+    self->gaze_y_ = self->gaze_from_y_ + (self->gaze_to_y_ - self->gaze_from_y_) * value / 256;
+    if (self->emoji_box_ != nullptr) {
+        lv_obj_set_style_translate_x(self->emoji_box_, self->gaze_x_, 0);
+        lv_obj_set_style_translate_y(self->emoji_box_, self->gaze_y_, 0);
+    }
+}
+
+void WalleDisplay::SetGaze(int dx, int dy) {
+    DisplayLockGuard lock(this);
+    if (emoji_box_ == nullptr) {
+        return;
+    }
+    const bool centre = dx == 0 && dy == 0;
+    if (dx == gaze_to_x_ && dy == gaze_to_y_) {
+        return;
+    }
+    if (!centre && std::abs(dx - gaze_to_x_) <= 1 && std::abs(dy - gaze_to_y_) <= 1) {
+        return;   // a pixel of jitter is not a new direction
+    }
+    gaze_from_x_ = gaze_x_;
+    gaze_from_y_ = gaze_y_;
+    gaze_to_x_ = dx;
+    gaze_to_y_ = dy;
+    lv_anim_delete(this, GazeStep);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, this);
+    lv_anim_set_values(&a, 0, 256);
+    lv_anim_set_duration(&a, 380);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&a, GazeStep);
+    lv_anim_start(&a);
+}
+
+bool WalleDisplay::EyesVisible() {
+    DisplayLockGuard lock(this);
+    return emoji_box_ != nullptr && !blank_ && !clock_shown_ && !qr_shown_.load() && !music_screen_shown_.load() &&
+           !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void WalleDisplay::CreateClock() {

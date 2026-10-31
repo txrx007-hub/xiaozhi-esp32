@@ -11,12 +11,15 @@
 //   FaceMe()   one-shot "look at me": at most four pictures. Each one is inspected first, then the robot decides where and how far to turn (towards the face, or on the spot to search
 //              when there is no face in it), and takes the next picture, until the face is in the middle.
 //   follow     the follow_mode setting: a background task repeats a look every follow_ms while Jarvis is idle.
+//   eyes       the eyes_follow setting: the same looks, but Jarvis stays where it is and only the eyes on the screen slide towards the face (eyes_range pixels at most,
+//              eyes_invert swaps left and right). Follow mode and Face me use the eyes too, whatever eyes_follow says: the eyes look at the face, then the wheels turn to it.
 //   TalkTick() every 100 ms (own timer): while Jarvis speaks and sound is really coming out of the speaker, now and then a quick left-right sway, matched to the current emotion.
 namespace walle_track {
 
 struct Face {
     bool found = false;
     float x = 0;      // centre of the biggest face: -1 = left edge of the picture, +1 = right edge
+    float y = 0;      // and from the top (-1) to the bottom (+1) of the picture
     float width = 0;  // its width as a part of the picture width
     int count = 0;    // faces seen
 };

@@ -61,6 +61,14 @@ public:
     // level with the status dot (on the eyes just right of the Wi-Fi icon).
     void SetMuteIcon(bool on);
 
+    // The eyes look towards the user's face: the whole eye picture slides dx / dy pixels (right / down are positive, 0 / 0 = looking straight ahead), gliding there
+    // in a third of a second. Safe from any task. Every other screen (the clock, a photo, the music picture) is unaffected; the offset applies to the eyes only.
+    void SetGaze(int dx, int dy);
+    // The eyes in one colour (0xrrggbb; the eye shapes are tinted flat, like the surprised face), or -1 for the eyes' own colours. Kept by the setting eye_color.
+    void SetEyeColor(int32_t rgb);
+    // True while the eyes are what the screen shows (not the clock, the QR page, the music picture, a photo or the nap screen).
+    bool EyesVisible();
+
     // Idle clock: big HH:MM, date, optional weather line and the wake word hint.
     void ShowIdleClock(bool show);
     bool IsIdleClockShown() const { return clock_shown_; }
@@ -180,6 +188,12 @@ private:
     void PaintWifiBars();         // colours the bars for wifi_level_ (display lock held)
     void UpdateWifiBars();        // reads the signal (at most every 4 s) and repaints on a change
     bool mute_on_ = false;
+    // The gaze glide: the eye picture's offset runs from (from_x, from_y) to (to_x, to_y) while the animation value goes 0..256 (display lock held).
+    int gaze_x_ = 0, gaze_y_ = 0;
+    int gaze_from_x_ = 0, gaze_from_y_ = 0;
+    int gaze_to_x_ = 0, gaze_to_y_ = 0;
+    static void GazeStep(void* var, int32_t value);
+    std::atomic<int32_t> eye_color_{-1};
     void CreateMuteIcon();
     void PlaceMuteIcon();  // left edge on the clock, right of the Wi-Fi icon on the eyes; on top of the layer
     lv_obj_t* ribbon_ = nullptr;

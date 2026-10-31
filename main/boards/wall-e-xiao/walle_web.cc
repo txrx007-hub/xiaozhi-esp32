@@ -256,6 +256,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
     cJSON_AddBoolToObject(root, "follow", WalleSettings::GetInstance().GetBool("follow_mode"));   // follow mode: the toggle of the page and the app
+    cJSON_AddBoolToObject(root, "eyes", WalleSettings::GetInstance().GetBool("eyes_follow"));     // eyes follow: its own toggle next to it (firmware build 94 and newer)
     cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());
     cJSON_AddNumberToObject(root, "fps", board.walle_display() != nullptr ? board.walle_display()->Fps() : 0);
     cJSON_AddNumberToObject(
@@ -438,6 +439,16 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
             cJSON_AddBoolToObject(out, "ok", true);
             cJSON_AddStringToObject(out, "message", on ? "Follow mode on: Jarvis turns towards your face." : "Follow mode off.");
         }
+    } else if (strcmp(action, "eyes_on") == 0 || strcmp(action, "eyes_off") == 0) {
+        const bool on = strcmp(action, "eyes_on") == 0;
+        if (on && !walle_server::IsCustom()) {
+            cJSON_AddBoolToObject(out, "ok", false);
+            cJSON_AddStringToObject(out, "message", "Eyes that follow you need your own voice server.");
+        } else {
+            WalleSettings::GetInstance().Set("eyes_follow", on ? "1" : "0");
+            cJSON_AddBoolToObject(out, "ok", true);
+            cJSON_AddStringToObject(out, "message", on ? "Eyes on: Jarvis looks at you with its eyes and stays where it is." : "Eyes off.");
+        }
     } else if (strcmp(action, "face") == 0) {
         if (!walle_server::IsCustom()) {
             cJSON_AddBoolToObject(out, "ok", false);
@@ -469,7 +480,7 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         cJSON_AddStringToObject(out, "message", minutes > 0 ? "Deep sleep in 2 s." : "Deep sleep in 2 s, until the BOOT button.");
     } else {
         cJSON_Delete(out);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute, unmute, follow_on, follow_off or face");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute, unmute, follow_on, follow_off, eyes_on, eyes_off or face");
         return ESP_FAIL;
     }
     return SendJson(req, out);

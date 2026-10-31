@@ -35,6 +35,8 @@
 
 #define TAG "WallEBoard"
 
+static int32_t ParseEyeColor(const std::string& text);   // the eye_color setting as 0xrrggbb, or -1 (defined above ApplySetting)
+
 namespace {
 
 constexpr int kNightVolumeCap = 40;
@@ -324,6 +326,7 @@ WalleAudioCodec* WallEBoard::walle_codec() {
         c->SetSpectrumEnabled(mode != 0);
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
         display_->SetMusicIcon(settings.GetInt("music_icon"));
+        display_->SetEyeColor(ParseEyeColor(settings.GetText("eye_color")));
         // Music needs the spectrum for its Winamp bars even when the speaking visualizer is off.
         display_->SetMusicHook([c](bool on) {
             c->SetSpectrumEnabled(on || WalleSettings::GetInstance().GetInt("visualizer_mode") != 0);
@@ -694,6 +697,16 @@ void WallEBoard::ApplyWakeThreshold(bool speaking) {
     }
 }
 
+// The setting eye_color holds "#rrggbb" (the voice server turns "blue" into it) or nothing (the eyes' own colours): the colour as 0xrrggbb, or -1.
+static int32_t ParseEyeColor(const std::string& text) {
+    if (text.size() != 7 || text[0] != '#') {
+        return -1;
+    }
+    char* end = nullptr;
+    const long value = strtol(text.c_str() + 1, &end, 16);
+    return (*end == '\0' && value >= 0) ? static_cast<int32_t>(value) : -1;
+}
+
 void WallEBoard::ApplySetting(const std::string& key) {
     auto& settings = WalleSettings::GetInstance();
     if (key == "mic_gain_db") {
@@ -725,8 +738,10 @@ void WallEBoard::ApplySetting(const std::string& key) {
         if (camera_ != nullptr) {
             camera_->SetSaturation(settings.GetInt("camera_saturation"));
         }
-    } else if (key == "follow_mode") {
+    } else if (key == "follow_mode" || key == "eyes_follow") {
         walle_track::Wake();
+    } else if (key == "eye_color") {
+        display_->SetEyeColor(ParseEyeColor(settings.GetText("eye_color")));
     } else if (key == "log_level") {
         static const esp_log_level_t kLevels[] = {ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO,
                                                   ESP_LOG_DEBUG};

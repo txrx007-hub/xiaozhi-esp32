@@ -182,8 +182,9 @@ std::atomic<bool> g_gazing{false};   // the eyes are looking away from straight 
 int g_gaze_misses = 0;               // looks in a row without a face (the eyes go back to the middle after two)
 
 // The eyes look at a face (nullptr or not found: straight ahead). The settings eyes_range (sideways) and eyes_range_y (up and down) are how far they slide, in
-// pixels: the eye shapes are about 200 px wide on the 240 px screen, so sideways they have little room before their edge is cut off, up and down much more
-// (measured over all faces: 13 px left and right, 32 px up and 52 px down at worst, 72 / 81 for the neutral face). The camera picture is mirrored
+// pixels: the eye shapes are about 200 px wide on the 240 px screen, so sideways they have little room before their outer edge leaves the screen, up and down much more
+// (measured over all faces: 13 px left and right, 32 px up and 52 px down at worst, 72 / 81 for the neutral face). With the defaults (40 / 80) a face at the side of the
+// picture sends the eyes to the edge of the screen and a face in a corner of the picture into the corner, partly cut off by the screen edge. The camera picture is mirrored
 // against the wheels (face_invert) and so against the screen too: a face on the right of the picture is on the user's right, and the eyes slide right (eyes_invert
 // swaps that). A face high in the picture is looked up at.
 void GazeAt(const Face* face) {

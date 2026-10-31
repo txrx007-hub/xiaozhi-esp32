@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 95 | 2026-11-01 | The eyes reach the top, the bottom, the sides and the corners of the screen: `eyes_range` 40 px (up to 100) and `eyes_range_y` 80 px (up to 110) by default, partly cut off by the screen edge at the extremes | 2.38 | |
 | 94 | 2026-10-31 | Eyes follow me: new setting `eyes_follow` (own switch next to Follow me; `eyes_range`, `eyes_range_y`, `eyes_invert`): the eyes on the screen slide towards your face while Jarvis is idle and stays where it is; follow mode and Face me use the eyes too; `eyes` in `/api/status`, `eyes_on` / `eyes_off` in `/api/power` | 2.38 | landing page switch; backend: voice commands, Faces card and Known in the panel |
 | 93 | 2026-10-30 | The greeter: `POST /api/call` wakes the robot and has the voice server say a text (`[device_call]`); the clock's Wi-Fi icon sits exactly where the eyes' one does, in the same colours | 2.37 | backend: greeter (`greeter.py`, panel card), face finder `?presence=1` |
 | 92 | 2026-10-30 | The Wi-Fi icon sits in the top left corner (2 px from the edges, it wasted pixels there), 10% lower (12 px), same width; each lit bar has its own colour: red, orange, dark orange, green, bright green | 2.37 | backend (no firmware change, no revision of its own): voice recognition label only, memory notes per speaker |

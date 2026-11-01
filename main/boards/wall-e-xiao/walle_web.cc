@@ -420,6 +420,11 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         Application::GetInstance().Schedule([]() { WallEBoard::Get().ExitNap(); });
         cJSON_AddBoolToObject(out, "ok", true);
         cJSON_AddStringToObject(out, "message", "Waking up.");
+    } else if (strcmp(action, "silence") == 0) {
+        const bool was_ringing = WallEBoard::Get().IsRinging();
+        Application::GetInstance().Schedule([]() { WallEBoard::Get().StopRinging(); });
+        cJSON_AddBoolToObject(out, "ok", was_ringing);
+        cJSON_AddStringToObject(out, "message", was_ringing ? "Alarm silenced." : "No alarm is ringing.");
     } else if (strcmp(action, "mute") == 0 || strcmp(action, "unmute") == 0) {
         const bool on = action[0] == 'm';
         Application::GetInstance().Schedule([on]() {
@@ -480,7 +485,7 @@ esp_err_t PostPowerHandler(httpd_req_t* req) {
         cJSON_AddStringToObject(out, "message", minutes > 0 ? "Deep sleep in 2 s." : "Deep sleep in 2 s, until the BOOT button.");
     } else {
         cJSON_Delete(out);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, mute, unmute, follow_on, follow_off, eyes_on, eyes_off or face");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "action must be nap, wake, deepsleep, silence, mute, unmute, follow_on, follow_off, eyes_on, eyes_off or face");
         return ESP_FAIL;
     }
     return SendJson(req, out);

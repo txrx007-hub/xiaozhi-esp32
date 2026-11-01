@@ -134,6 +134,7 @@ private:
     bool spoke_since_request_ = false;
     bool log_level_applied_ = false;
     std::atomic<bool> ringing_{false};
+    std::atomic<bool> alarm_listening_{false};   // a silent voice session is open while the alarm rings, so "stop" can end it
     int64_t ring_until_us_ = 0;
     int64_t next_ring_us_ = 0;
     std::atomic<bool> network_connected_{false};

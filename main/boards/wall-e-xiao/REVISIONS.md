@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 97 | 2026-11-01 | Alarm: a slow whoop (1 s) every 2 s with 1 s of quiet in between (new alarm.ogg); the microphone listens while it rings (silent voice session with the own server, `[device_call] [alarm]`), so saying "stop" ends it, and the screen keeps showing the timer instead of Connecting / Listening; `/api/power?action=silence` | 2.38 | |
 | 96 | 2026-11-01 | Eyes look the right way: the default sideways direction is now towards the user as seen from the screen (the picture is not mirrored, so a face on the right of the picture is on the left of the screen); `eyes_invert` swaps it; the wheel and eye swap switches are labelled apart ("Wheels: swap left/right" and "Eyes: swap left/right") | 2.38 | |
 | 95 | 2026-11-01 | The eyes reach the top, the bottom, the sides and the corners of the screen: `eyes_range` 40 px (up to 100) and `eyes_range_y` 80 px (up to 110) by default, partly cut off by the screen edge at the extremes | 2.38 | |
 | 94 | 2026-10-31 | Eyes follow me: new setting `eyes_follow` (own switch next to Follow me; `eyes_range`, `eyes_range_y`, `eyes_invert`): the eyes on the screen slide towards your face while Jarvis is idle and stays where it is; follow mode and Face me use the eyes too; `eyes` in `/api/status`, `eyes_on` / `eyes_off` in `/api/power` | 2.38 | landing page switch; backend: voice commands, Faces card and Known in the panel |

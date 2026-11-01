@@ -42,7 +42,7 @@ namespace {
 constexpr int kNightVolumeCap = 40;
 constexpr int64_t kPendingTimeoutUs = 25LL * 1000 * 1000;  // nap/sleep even if no reply comes
 constexpr int64_t kRingDurationUs = 60LL * 1000 * 1000;
-constexpr int64_t kRingIntervalUs = 2500LL * 1000;
+constexpr int64_t kRingIntervalUs = 2000LL * 1000;   // a slow whoop of 1 s (alarm.ogg), then 1 s of quiet
 constexpr int64_t kQrPageUs = 10LL * 1000 * 1000;   // each QR code stays this long before the next
 constexpr int64_t kQrTotalUs = 60LL * 1000 * 1000;  // then the screen goes back to normal by itself
 
@@ -763,14 +763,35 @@ void WallEBoard::StartRinging(const std::string& label) {
     display_->ShowIdleClock(false);
     display_->ShowNotification("Timer: " + label, 60000);
     display_->HoldEmotion("surprised", 60000);
+
+    // The microphone listens while the alarm rings, so saying "stop" ends it (the own voice server answers; the screen keeps showing the alarm, not Listening).
+    // Not when the microphone is muted, in a conversation, or on the cloud server; the BOOT button and the wake word stop the alarm in any case.
+    if (walle_server::IsCustom() && !walle_codec()->mic_muted() && network_connected_) {
+        display_->SetStatusQuiet(true);
+        if (Application::GetInstance().DeviceCall("[alarm]")) {
+            alarm_listening_ = true;
+        } else {
+            display_->SetStatusQuiet(false);
+        }
+    }
 }
 
 void WallEBoard::StopRinging() {
     if (!ringing_.exchange(false)) {
         return;
     }
+    display_->SetStatusQuiet(false);
     display_->ShowNotification("Alarm stopped", 1500);
     display_->HoldEmotion("happy", 800);
+    if (alarm_listening_.exchange(false)) {
+        Application::GetInstance().Schedule([]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateListening) {
+                app.AbortSpeaking(kAbortReasonNone);
+                app.StopListening();   // -> idle
+            }
+        });
+    }
 }
 
 void WallEBoard::UpdateStatusDot() {
@@ -815,7 +836,7 @@ void WallEBoard::OnDeviceStateChanged(DeviceState previous, DeviceState now) {
     }
 
     display_->SetRibbon(now == kDeviceStateSpeaking    ? WalleDisplay::Ribbon::kOutput
-                        : now == kDeviceStateListening ? WalleDisplay::Ribbon::kInput
+                        : now == kDeviceStateListening && !alarm_listening_ ? WalleDisplay::Ribbon::kInput
                                                        : WalleDisplay::Ribbon::kOff);
 
     esp_timer_stop(listen_poll_timer_);

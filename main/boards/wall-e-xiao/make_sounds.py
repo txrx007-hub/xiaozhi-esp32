@@ -83,9 +83,18 @@ def test_tone():
 
 
 def alarm():
+    # a slow "whoop" like an air-raid / smoke-alarm siren: the pitch rises from 450 to 1500 Hz in 0.9 s (fast at the start, slower at the end) and is
+    # gone by 1.0 s. The board repeats it every 2 s (kRingIntervalUs), which leaves 1 s of quiet in between.
+    n = int(RATE * 1.0)
+    rise = int(RATE * 0.9)
     out = []
-    for freq in (1000, 1250, 1000):
-        out += tone(freq, 0.15, 0.55) + silence(0.12)
+    phase = 0.0
+    for i in range(n):
+        x = min(i / rise, 1.0)
+        freq = 450 + (1500 - 450) * (1 - (1 - x) ** 2)
+        phase += 2 * math.pi * freq / RATE
+        wave_ = math.sin(phase) + 0.35 * math.sin(2 * phase) + 0.15 * math.sin(3 * phase)
+        out.append(0.55 * wave_ / 1.5 * envelope(i, n, RATE * 0.06, RATE * 0.1))
     return out
 
 

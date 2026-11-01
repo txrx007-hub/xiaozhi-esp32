@@ -629,6 +629,9 @@ void WalleDisplay::CreateVisuals() {
 }
 
 void WalleDisplay::SetStatus(const char* status) {
+    if (status_quiet_.load()) {
+        return;
+    }
     SpiLcdDisplay::SetStatus(status);  // keeps the text current, so it is right when the music screen closes
     if (music_screen_shown_.load()) {
         DisplayLockGuard lock(this);

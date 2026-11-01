@@ -42,7 +42,7 @@ namespace {
 constexpr int kNightVolumeCap = 40;
 constexpr int64_t kPendingTimeoutUs = 25LL * 1000 * 1000;  // nap/sleep even if no reply comes
 constexpr int64_t kRingDurationUs = 60LL * 1000 * 1000;
-constexpr int64_t kRingIntervalUs = 2000LL * 1000;   // a slow whoop of 1 s (alarm.ogg), then 1 s of quiet
+constexpr int64_t kRingIntervalUs = 2300LL * 1000;   // a slow whoop of 1.3 s (alarm.ogg), then 1 s of quiet
 constexpr int64_t kQrPageUs = 10LL * 1000 * 1000;   // each QR code stays this long before the next
 constexpr int64_t kQrTotalUs = 60LL * 1000 * 1000;  // then the screen goes back to normal by itself
 

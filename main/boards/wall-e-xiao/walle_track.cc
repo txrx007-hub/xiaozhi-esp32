@@ -184,9 +184,9 @@ int g_gaze_misses = 0;               // looks in a row without a face (the eyes 
 // The eyes look at a face (nullptr or not found: straight ahead). The settings eyes_range (sideways) and eyes_range_y (up and down) are how far they slide, in
 // pixels: the eye shapes are about 200 px wide on the 240 px screen, so sideways they have little room before their outer edge leaves the screen, up and down much more
 // (measured over all faces: 13 px left and right, 32 px up and 52 px down at worst, 72 / 81 for the neutral face). With the defaults (40 / 80) a face at the side of the
-// picture sends the eyes to the edge of the screen and a face in a corner of the picture into the corner, partly cut off by the screen edge. The camera picture is mirrored
-// against the wheels (face_invert) and so against the screen too: a face on the right of the picture is on the user's right, and the eyes slide right (eyes_invert
-// swaps that). A face high in the picture is looked up at.
+// picture sends the eyes to the edge of the screen and a face in a corner of the picture into the corner, partly cut off by the screen edge. The camera picture is not
+// mirrored (CAMERA_HMIRROR is off): a face on the right of the picture stands on the robot's right, which is the LEFT of the screen for someone looking at it, so
+// the eyes slide left (eyes_invert swaps that). A face high in the picture is looked up at.
 void GazeAt(const Face* face) {
     auto* display = WallEBoard::Get().walle_display();
     if (display == nullptr) {
@@ -201,7 +201,7 @@ void GazeAt(const Face* face) {
     auto& settings = WalleSettings::GetInstance();
     const float range_x = static_cast<float>(settings.GetInt("eyes_range"));
     const float range_y = static_cast<float>(settings.GetInt("eyes_range_y"));
-    const float sign = settings.GetBool("eyes_invert") ? -1.0f : 1.0f;
+    const float sign = settings.GetBool("eyes_invert") ? 1.0f : -1.0f;   // screen x grows to the right of someone looking at the robot
     // A face seldom reaches the very edge of the picture: the eyes reach their full travel when it is 60% of the way out. Nearly straight ahead: straight ahead.
     auto lead = [](float v) { return std::fabs(v) < 0.06f ? 0.0f : std::clamp(v * 1.6f, -1.0f, 1.0f); };
     const int dx = static_cast<int>(std::lround(lead(face->x) * sign * range_x));

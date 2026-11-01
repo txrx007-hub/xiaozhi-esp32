@@ -122,7 +122,7 @@ def main():
             if only and name != only:
                 continue
             if name == "alarm" and only != "alarm":
-                continue  # the shipped alarm.ogg is the air-raid siren sound effect (seconds 0.5-5.8 of walle-backup/sources/air-raid-siren-sound-effect-241383.mp3, volume=3dB, fades), not this synthesis
+                continue  # the shipped alarm.ogg is the air-raid siren sound effect (seconds 0.5-5.8 of walle-backup/sources/air-raid-siren-sound-effect-241383.mp3, volume=3dB, limiter 0.8, fades), not this synthesis
             if name == "wake_chirp" and only != "wake_chirp":
                 continue  # never overwrite the shipped R2-D2 chirp by accident (see wake_chirp())
             wav = os.path.join(tmp, name + ".wav")

@@ -83,19 +83,24 @@ def test_tone():
 
 
 def alarm():
-    # a slow "whoop" like an air-raid / smoke-alarm siren: the pitch rises from 450 to 1500 Hz in 1.17 s (fast at the start, slower at the end) and is
-    # gone by 1.3 s. The board repeats it every 2.3 s (kRingIntervalUs), which leaves 1 s of quiet in between.
+    # a big-rig truck air horn: a deep, full blast of a three-trumpet chord (262, 311 and 392 Hz, each pair a few hertz apart so the horns beat a little),
+    # air building up over 80 ms with a small dip in pitch at the start, a long steady hold and a short fade; 1.3 s in all. Rich in harmonics so the
+    # small speaker carries it. The board repeats it every 2.3 s (kRingIntervalUs), which leaves 1 s of quiet in between.
     n = int(RATE * 1.3)
-    rise = int(RATE * 1.17)
+    notes = (262.0, 262.0 * 1.006, 311.0, 311.0 * 1.006, 392.0, 392.0 * 1.006)
+    phase = [0.0] * len(notes)
     out = []
-    phase = 0.0
     for i in range(n):
-        x = min(i / rise, 1.0)
-        freq = 450 + (1500 - 450) * (1 - (1 - x) ** 2)
-        phase += 2 * math.pi * freq / RATE
-        wave_ = math.sin(phase) + 0.35 * math.sin(2 * phase) + 0.15 * math.sin(3 * phase)
-        out.append(0.55 * wave_ / 1.5 * envelope(i, n, RATE * 0.06, RATE * 0.1))
-    return out
+        t = i / RATE
+        scoop = 1.0 - 0.07 * math.exp(-t / 0.05)
+        sample = 0.0
+        for v, f in enumerate(notes):
+            phase[v] += 2 * math.pi * f * scoop / RATE
+            sample += sum((1.0 / h ** 1.1) * (1.4 if 2 <= h <= 5 else 1.0) * math.sin(h * phase[v]) for h in range(1, 15))
+        sample = math.tanh(0.45 * sample / len(notes) * 2)   # a little warmth, much less edge than the electronic horn
+        out.append(sample * envelope(i, n, RATE * 0.08, RATE * 0.2))
+    peak = max(abs(v) for v in out)
+    return [v * 0.7 / peak for v in out]
 
 
 def write_wav(path, samples):
@@ -116,6 +121,8 @@ def main():
         for name, samples in sounds.items():
             if only and name != only:
                 continue
+            if name == "alarm" and only != "alarm":
+                continue  # the shipped alarm.ogg is the air-raid siren sound effect (seconds 0.5-5.8 of walle-backup/sources/air-raid-siren-sound-effect-241383.mp3, volume=3dB, fades), not this synthesis
             if name == "wake_chirp" and only != "wake_chirp":
                 continue  # never overwrite the shipped R2-D2 chirp by accident (see wake_chirp())
             wav = os.path.join(tmp, name + ".wav")

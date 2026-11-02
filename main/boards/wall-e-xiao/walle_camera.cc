@@ -34,6 +34,8 @@ constexpr uint16_t kAfCmdAck = 0x3023;
 constexpr uint16_t kAfCmdPara0 = 0x3024;       // 0x3024..0x3028: command parameters
 constexpr uint16_t kAfFwStatus = 0x3029;
 constexpr uint8_t kAfStatusIdle = 0x70;
+constexpr uint8_t kAfStatusFocusing = 0x00;
+constexpr uint8_t kAfStatusFocused = 0x10;
 constexpr uint8_t kAfCmdContinuous = 0x04;
 constexpr uint8_t kAfCmdPause = 0x06;
 constexpr uint8_t kAfCmdRelease = 0x08;
@@ -135,7 +137,8 @@ void WalleCamera::SensorRestarted() {
 }
 
 bool WalleCamera::WaitAutofocusReg(uint16_t reg, uint8_t value, int timeout_ms) {
-    for (int waited = 0; waited <= timeout_ms; waited += 5) {
+    const int64_t until = esp_timer_get_time() + static_cast<int64_t>(timeout_ms) * 1000;
+    do {
         uint8_t now = 0;
         if (!ReadSensorReg(reg, &now)) {
             return false;
@@ -143,8 +146,8 @@ bool WalleCamera::WaitAutofocusReg(uint16_t reg, uint8_t value, int timeout_ms) 
         if (now == value) {
             return true;
         }
-        vTaskDelay(pdMS_TO_TICKS(5));
-    }
+        vTaskDelay(pdMS_TO_TICKS(10) > 0 ? pdMS_TO_TICKS(10) : 1);   // at least one tick, however fast the tick is
+    } while (esp_timer_get_time() < until);
     return false;
 }
 
@@ -167,10 +170,36 @@ bool WalleCamera::AutofocusCommand(uint8_t command) {
     return WriteSensorReg(kAfCmdAck, 0x01) && WriteSensorReg(kAfCmdMain, command) && WaitAutofocusReg(kAfCmdAck, 0x00, 1000);
 }
 
+void WalleCamera::LogAutofocusRegs(const char* where) {
+    uint8_t main = 0xEE, ack = 0xEE, status = 0xEE;
+    ReadSensorReg(kAfCmdMain, &main);
+    ReadSensorReg(kAfCmdAck, &ack);
+    ReadSensorReg(kAfFwStatus, &status);
+    ESP_LOGI(TAG, "Autofocus %s: command 0x%02x, ack 0x%02x, firmware status 0x%02x", where, main, ack, status);
+}
+
 bool WalleCamera::AutofocusStart() {
-    // The same order as esp32-camera's ov5640_af_start(): the focus is released first, then continuous focus is requested.
-    return WriteSensorReg(kAfCmdMain, 0x01) && WriteSensorReg(kAfCmdMain, kAfCmdRelease) && WaitAutofocusReg(kAfCmdAck, 0x00, 2000) &&
-           AutofocusCommand(kAfCmdContinuous);
+    LogAutofocusRegs("before start");
+    // First the order esp32-camera's ov5640_af_start() uses: the focus is released, then continuous focus is requested.
+    if (WriteSensorReg(kAfCmdMain, 0x01) && WriteSensorReg(kAfCmdMain, kAfCmdRelease) && WaitAutofocusReg(kAfCmdAck, 0x00, 2000) &&
+        AutofocusCommand(kAfCmdContinuous)) {
+        return true;
+    }
+    LogAutofocusRegs("after the first way failed");
+    // In continuous mode this firmware takes the command (the command register goes back to 0) and starts focusing (status 0x00, then 0x10 when
+    // sharp) but leaves the acknowledge flag set: that is a running autofocus, not a failure.
+    uint8_t status = kAfStatusIdle;
+    if (ReadSensorReg(kAfFwStatus, &status) && (status == kAfStatusFocusing || status == kAfStatusFocused)) {
+        ESP_LOGI(TAG, "Autofocus: the focus processor is working (status 0x%02x), the acknowledge flag stays set", status);
+        return true;
+    }
+    // Then the plain handshake of Omnivision's AF guide for both steps: ack = 1, command, wait for the ack to clear.
+    if (AutofocusCommand(kAfCmdRelease) && AutofocusCommand(kAfCmdContinuous)) {
+        ESP_LOGI(TAG, "Autofocus: the plain handshake worked");
+        return true;
+    }
+    LogAutofocusRegs("after the second way failed");
+    return false;
 }
 
 void WalleCamera::AutofocusWork() {
@@ -200,6 +229,16 @@ void WalleCamera::AutofocusWork() {
             af_applied_ = true;
             af_state_ = AfState::kOn;
             ESP_LOGI(TAG, "Autofocus on (continuous)");
+            // For the log: how the focus processor settles (0x00 focusing, 0x10 sharp), for the first few seconds only.
+            uint8_t last = 0xEE;
+            for (int i = 0; i < 24 && af_wanted_; ++i) {
+                uint8_t now = last;
+                if (ReadSensorReg(kAfFwStatus, &now) && now != last) {
+                    ESP_LOGI(TAG, "Autofocus status 0x%02x after %d ms", now, i * 250);
+                    last = now;
+                }
+                vTaskDelay(pdMS_TO_TICKS(250) > 0 ? pdMS_TO_TICKS(250) : 1);
+            }
         } else {
             if (af_loaded_ && !AutofocusCommand(kAfCmdPause)) {
                 ESP_LOGW(TAG, "Autofocus: pause was not acknowledged");

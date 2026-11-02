@@ -966,9 +966,46 @@ bool EspVideo::CaptureImpl(int frames, bool preview) {
         uint8_t* data = nullptr;
 
         switch (frame_.format) {
-            // LVGL 显示 YUV 系的图像似乎都有问题，暂时转换为 RGB565 显示
+            // WALL-E: the screen is 240 px wide and scales the preview to it, so a full-size RGB565 copy (960 KB at 800x600) is wasted PSRAM - and
+            // with the JPEG encoder's two buffers after it, a photo with preview no longer fitted once the OV5640 replaced the 640x480 OV3660.
+            // Every third pixel of every third row, converted by hand (full-range BT.601, what the JPEG encoder assumes too): 266x200 = 106 KB.
             case V4L2_PIX_FMT_YUYV:
-            case V4L2_PIX_FMT_UYVY:
+            case V4L2_PIX_FMT_UYVY: {
+                constexpr int kStep = 3;
+                const bool yuyv = frame_.format == V4L2_PIX_FMT_YUYV;
+                const uint16_t pw = (w / kStep) & ~1;
+                const uint16_t ph = h / kStep;
+                const size_t pstride = ((static_cast<size_t>(pw) * 2) + 3) & ~static_cast<size_t>(3);
+                data = (uint8_t*)heap_caps_malloc(pstride * ph, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (data == nullptr) {
+                    ESP_LOGE(TAG, "Failed to allocate memory for preview image");
+                    return false;
+                }
+                const size_t src_stride = static_cast<size_t>(w) * 2;
+                auto clamp8 = [](int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); };
+                for (uint16_t y = 0; y < ph; ++y) {
+                    const uint8_t* src_row = frame_.data + static_cast<size_t>(y) * kStep * src_stride;
+                    uint16_t* dst_row = reinterpret_cast<uint16_t*>(data + y * pstride);
+                    for (uint16_t x = 0; x < pw; ++x) {
+                        const int sx = x * kStep;
+                        const uint8_t* m = src_row + static_cast<size_t>(sx & ~1) * 2;   // the 4 bytes that hold pixels sx&~1 and sx|1
+                        const int luma = yuyv ? m[(sx & 1) ? 2 : 0] : m[(sx & 1) ? 3 : 1];
+                        const int u = (yuyv ? m[1] : m[0]) - 128;
+                        const int v = (yuyv ? m[3] : m[2]) - 128;
+                        const int r = clamp8(luma + ((359 * v) >> 8));
+                        const int g = clamp8(luma - ((88 * u + 183 * v) >> 8));
+                        const int b = clamp8(luma + ((454 * u) >> 8));
+                        dst_row[x] = static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+                    }
+                }
+                w = pw;
+                h = ph;
+                stride = pstride;
+                lvgl_image_size = pstride * ph;
+                break;
+            }
+
+            // LVGL 显示 YUV 系的图像似乎都有问题，暂时转换为 RGB565 显示
             case V4L2_PIX_FMT_YUV420:
             case V4L2_PIX_FMT_RGB24: {
                 color_format = LV_COLOR_FORMAT_RGB565;

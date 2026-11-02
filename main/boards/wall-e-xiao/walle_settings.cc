@@ -122,7 +122,7 @@ WalleSettings::WalleSettings() {
         {"camera_af", Kind::kBool, 0, 1, 1,
          "autofocus of the OV5640 camera: on keeps the picture sharp at any distance (the lens hunts a little when the scene changes), off holds the focus where it is (does nothing on other cameras)"},
         {"camera_drive", Kind::kInt, 0, 3, 0,
-         "OV5640 signal strength to the chip: 0 is the coolest (the camera runs about 15 C cooler), 3 is the chip's own setting; raise it if pictures show speckles or lines (not shown on the settings pages)"},
+         "OV5640 signal strength to the chip: 0 is the weakest and coolest (1x, what the chip starts with here), 3 is 4x; raise it if pictures show speckles or lines (not shown on the settings pages)"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},
         {"quiet_start", Kind::kTimeOfDay, -1, 1439, -1, "night mode start, HH:MM or off"},
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},

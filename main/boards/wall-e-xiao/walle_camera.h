@@ -63,6 +63,7 @@ private:
     enum class AfState : uint8_t { kNone, kOff, kLoading, kOn, kFailed };
     bool LoadAutofocusFirmware();
     bool AutofocusStart();                   // continuous focus, as esp32-camera's ov5640_af does it
+    void LogAutofocusRegs(const char* where);
     bool AutofocusCommand(uint8_t command);  // handshake: ack = 1, command, wait for the ack to clear
     bool WaitAutofocusReg(uint16_t reg, uint8_t value, int timeout_ms);
     void AutofocusWork();

@@ -242,6 +242,10 @@ void WallEBoard::InitializeCamera() {
 void WallEBoard::ApplyCameraSettings() {
     camera_->SetVFlip(CAMERA_VFLIP);
     camera_->SetHMirror(CAMERA_HMIRROR);
+    // OV5640: a (re)started sensor has lost the focus firmware and has its pad drive back at the hot default (both do nothing on other sensors)
+    camera_->SensorRestarted();
+    camera_->SetPadDrive(WalleSettings::GetInstance().GetInt("camera_drive"));
+    camera_->SetAutofocus(WalleSettings::GetInstance().GetBool("camera_af"));
     camera_->SetAeLevel(WalleSettings::GetInstance().GetInt("camera_brightness"));
     if (const int saturation = WalleSettings::GetInstance().GetInt("camera_saturation"); saturation != 0) {
         camera_->SetSaturation(saturation);   // 0 is what the sensor starts with: nothing to write
@@ -737,6 +741,14 @@ void WallEBoard::ApplySetting(const std::string& key) {
     } else if (key == "camera_saturation") {
         if (camera_ != nullptr) {
             camera_->SetSaturation(settings.GetInt("camera_saturation"));
+        }
+    } else if (key == "camera_af") {
+        if (camera_ != nullptr) {
+            camera_->SetAutofocus(settings.GetBool("camera_af"));
+        }
+    } else if (key == "camera_drive") {
+        if (camera_ != nullptr) {
+            camera_->SetPadDrive(settings.GetInt("camera_drive"));
         }
     } else if (key == "follow_mode" || key == "eyes_follow") {
         walle_track::Wake();

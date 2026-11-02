@@ -75,6 +75,8 @@ public:
     bool SetAeLevel(int level);
     // WALL-E: write one raw sensor register (via esp_cam_sensor's ioctl pass-through).
     bool WriteSensorReg(uint16_t reg, uint8_t value);
+    // WALL-E: read one raw sensor register (same pass-through).
+    bool ReadSensorReg(uint16_t reg, uint8_t* value);
     // WALL-E: a video device was opened, i.e. esp_video found and initialized a camera sensor.
     bool CameraPresent() const { return video_fd_ >= 0; }
     // WALL-E: the sensor model as the sensor itself reports it (chip ID read over SCCB): "OV3660",

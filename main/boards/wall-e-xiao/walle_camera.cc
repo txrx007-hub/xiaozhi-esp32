@@ -9,17 +9,34 @@
 
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "application.h"
 #include "board.h"
 #include "jpg/image_to_jpeg.h"
 #include "walle_display.h"
+#include "walle_ov5640_af_fw.h"
 #include "walle_settings.h"
 #include "walle_sounds.h"
 
 #define TAG "WalleCamera"
 
 namespace {
+
+// OV5640 registers. The focus processor's: Omnivision's AF guide, in the order esp32-camera's ov5640_af.c uses them.
+constexpr uint16_t kPadDriveReg = 0x302C;      // bits 7:6 = pad drive strength
+constexpr uint16_t kAfReset = 0x3000;          // 0x20 holds the focus processor in reset, 0x00 lets it run
+constexpr uint16_t kAfFirmwareBase = 0x8000;   // the processor's program memory
+constexpr uint16_t kAfCmdMain = 0x3022;
+constexpr uint16_t kAfCmdAck = 0x3023;
+constexpr uint16_t kAfCmdPara0 = 0x3024;       // 0x3024..0x3028: command parameters
+constexpr uint16_t kAfFwStatus = 0x3029;
+constexpr uint8_t kAfStatusIdle = 0x70;
+constexpr uint8_t kAfCmdContinuous = 0x04;
+constexpr uint8_t kAfCmdPause = 0x06;
+constexpr uint8_t kAfCmdRelease = 0x08;
 
 WalleDisplay* GetWalleDisplay() {
     return static_cast<WalleDisplay*>(Board::GetInstance().GetDisplay());
@@ -46,6 +63,9 @@ WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(confi
     sensor_name_ = DetectSensorName();
     if (CameraPresent()) {
         ESP_LOGI(TAG, "Camera detected: %s", sensor_name_.c_str());
+        if (sensor_name_ == "OV5640") {
+            af_state_ = AfState::kOff;
+        }
         EnableAutoWhiteBalance();
     } else {
         ESP_LOGW(TAG, "No camera detected");
@@ -86,6 +106,152 @@ bool WalleCamera::SetSaturation(int level) {
         }
     }
     return true;
+}
+
+bool WalleCamera::SetPadDrive(int level) {
+    if (af_state_ == AfState::kNone || level < 0 || level > 3) {
+        return false;
+    }
+    uint8_t value = 0;
+    if (!ReadSensorReg(kPadDriveReg, &value)) {
+        ESP_LOGW(TAG, "Could not read the sensor's pad drive register");
+        return false;
+    }
+    const uint8_t wanted = static_cast<uint8_t>((value & ~0xC0) | (level << 6));
+    if (wanted != value && !WriteSensorReg(kPadDriveReg, wanted)) {
+        ESP_LOGW(TAG, "Could not set the sensor's pad drive strength");
+        return false;
+    }
+    ESP_LOGI(TAG, "Sensor pad drive %dx (register 0x302C 0x%02x -> 0x%02x)", level + 1, value, wanted);
+    return true;
+}
+
+void WalleCamera::SensorRestarted() {
+    af_loaded_ = false;
+    af_applied_ = false;
+    if (af_state_ != AfState::kNone && af_state_ != AfState::kLoading) {
+        af_state_ = AfState::kOff;
+    }
+}
+
+bool WalleCamera::WaitAutofocusReg(uint16_t reg, uint8_t value, int timeout_ms) {
+    for (int waited = 0; waited <= timeout_ms; waited += 5) {
+        uint8_t now = 0;
+        if (!ReadSensorReg(reg, &now)) {
+            return false;
+        }
+        if (now == value) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return false;
+}
+
+bool WalleCamera::LoadAutofocusFirmware() {
+    bool ok = WriteSensorReg(kAfReset, 0x20);   // stop the focus processor while its program is written
+    for (size_t i = 0; ok && i < sizeof(ov5640_af_firmware); ++i) {
+        ok = WriteSensorReg(static_cast<uint16_t>(kAfFirmwareBase + i), ov5640_af_firmware[i]);
+        if ((i & 0xFF) == 0xFF) {
+            vTaskDelay(1);   // the camera task and the web server get their turns in between
+        }
+    }
+    for (uint16_t reg = kAfCmdMain; ok && reg <= kAfCmdPara0 + 4; ++reg) {
+        ok = WriteSensorReg(reg, 0x00);   // command, acknowledge and the five parameters start empty
+    }
+    ok = ok && WriteSensorReg(kAfFwStatus, 0x7F) && WriteSensorReg(kAfReset, 0x00);   // run it
+    return ok && WaitAutofocusReg(kAfFwStatus, kAfStatusIdle, 3000);
+}
+
+bool WalleCamera::AutofocusCommand(uint8_t command) {
+    return WriteSensorReg(kAfCmdAck, 0x01) && WriteSensorReg(kAfCmdMain, command) && WaitAutofocusReg(kAfCmdAck, 0x00, 1000);
+}
+
+bool WalleCamera::AutofocusStart() {
+    // The same order as esp32-camera's ov5640_af_start(): the focus is released first, then continuous focus is requested.
+    return WriteSensorReg(kAfCmdMain, 0x01) && WriteSensorReg(kAfCmdMain, kAfCmdRelease) && WaitAutofocusReg(kAfCmdAck, 0x00, 2000) &&
+           AutofocusCommand(kAfCmdContinuous);
+}
+
+void WalleCamera::AutofocusWork() {
+    for (;;) {
+        const bool want = af_wanted_;
+        if (want == af_applied_) {
+            return;
+        }
+        if (want) {
+            if (!af_loaded_) {
+                af_state_ = AfState::kLoading;
+                const int64_t start = esp_timer_get_time();
+                if (!LoadAutofocusFirmware()) {
+                    ESP_LOGW(TAG, "Autofocus: the focus processor did not start");
+                    af_state_ = AfState::kFailed;
+                    return;
+                }
+                af_loaded_ = true;
+                ESP_LOGI(TAG, "Autofocus firmware loaded (%u bytes, %d ms)", static_cast<unsigned>(sizeof(ov5640_af_firmware)),
+                         static_cast<int>((esp_timer_get_time() - start) / 1000));
+            }
+            if (!AutofocusStart()) {
+                ESP_LOGW(TAG, "Autofocus: the focus processor did not accept the command");
+                af_state_ = AfState::kFailed;
+                return;
+            }
+            af_applied_ = true;
+            af_state_ = AfState::kOn;
+            ESP_LOGI(TAG, "Autofocus on (continuous)");
+        } else {
+            if (af_loaded_ && !AutofocusCommand(kAfCmdPause)) {
+                ESP_LOGW(TAG, "Autofocus: pause was not acknowledged");
+            }
+            af_applied_ = false;
+            af_state_ = AfState::kOff;
+            ESP_LOGI(TAG, "Autofocus off (the lens stays where it is)");
+        }
+    }
+}
+
+void WalleCamera::AutofocusTask(void* arg) {
+    auto* self = static_cast<WalleCamera*>(arg);
+    do {
+        self->AutofocusWork();
+        self->af_busy_ = false;
+        // A change that came in just as the work ended is picked up here (the caller saw "busy" and left it to this task).
+    } while (self->af_wanted_ != self->af_applied_ && self->af_state_ != AfState::kFailed && !self->af_busy_.exchange(true));
+    vTaskDelete(nullptr);
+}
+
+void WalleCamera::SetAutofocus(bool on) {
+    if (af_state_ == AfState::kNone) {
+        return;
+    }
+    af_wanted_ = on;
+    if (af_state_ == AfState::kFailed) {
+        af_state_ = AfState::kOff;   // switching it again is a new try
+    }
+    if (af_wanted_ == af_applied_ || af_busy_.exchange(true)) {
+        return;
+    }
+    if (xTaskCreate(&WalleCamera::AutofocusTask, "cam_af", 4096, this, 3, nullptr) != pdPASS) {
+        ESP_LOGE(TAG, "Autofocus: no memory for its task");
+        af_busy_ = false;
+        af_state_ = AfState::kFailed;
+    }
+}
+
+const char* WalleCamera::AutofocusState() const {
+    switch (af_state_.load()) {
+        case AfState::kOff:
+            return "off";
+        case AfState::kLoading:
+            return "loading";
+        case AfState::kOn:
+            return "on";
+        case AfState::kFailed:
+            return "failed";
+        default:
+            return "none";
+    }
 }
 
 bool WalleCamera::Capture() {

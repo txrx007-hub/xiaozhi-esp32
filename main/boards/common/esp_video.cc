@@ -488,6 +488,28 @@ bool EspVideo::WriteSensorReg(uint16_t reg, uint8_t value) {
     return ioctl(video_fd_, VIDIOC_S_EXT_CTRLS, &ctrls) == 0;
 }
 
+bool EspVideo::ReadSensorReg(uint16_t reg, uint8_t* value) {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    if (video_fd_ < 0 || value == nullptr) {
+        return false;
+    }
+    esp_cam_sensor_reg_val_t reg_val = {};
+    reg_val.regaddr = reg;
+    struct v4l2_ext_control ctrl = {};
+    ctrl.id = ESP_CAM_SENSOR_IOC_G_REG;
+    ctrl.size = sizeof(reg_val);
+    ctrl.p_u8 = reinterpret_cast<uint8_t*>(&reg_val);
+    struct v4l2_ext_controls ctrls = {};
+    ctrls.ctrl_class = V4L2_CTRL_CLASS_ESP_CAM_IOCTL;
+    ctrls.count = 1;
+    ctrls.controls = &ctrl;
+    if (ioctl(video_fd_, VIDIOC_G_EXT_CTRLS, &ctrls) != 0) {
+        return false;
+    }
+    *value = static_cast<uint8_t>(reg_val.value);
+    return true;
+}
+
 bool EspVideo::ProbeFrame() {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (!streaming_on_ || video_fd_ < 0) {

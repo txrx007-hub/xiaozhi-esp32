@@ -225,6 +225,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     auto* camera = board.walle_camera();
     cJSON_AddBoolToObject(root, "camera_detected", camera != nullptr && camera->Detected());
     cJSON_AddStringToObject(root, "camera_sensor", camera != nullptr ? camera->SensorName().c_str() : "");
+    cJSON_AddStringToObject(root, "camera_af", camera != nullptr ? camera->AutofocusState() : "none");   // none (not an OV5640), off, loading, on, failed
     cJSON_AddStringToObject(root, "ssid", wifi.GetSsid().c_str());
     cJSON_AddStringToObject(root, "ip", wifi.GetIpAddress().c_str());
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());

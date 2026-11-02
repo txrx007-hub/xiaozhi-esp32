@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 100 | 2026-11-02 | **TEST build** (label TEST-wifi-lwip-psram): `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y` in the local sdkconfig (not in the tracked config): the Wi-Fi and lwIP buffers go to PSRAM to free internal RAM; `/api/status` gets `ram_min_kb`, `ram_largest_kb` and (this build only) `net_in_psram`. Go back: flash archive 99 | 2.38 | |
 | 99 | 2026-11-01 | The alarm is the air-raid siren wind-up from the supplied sound effect (5.3 s rising whoop, then 1 s of quiet, every 6.3 s) | 2.38 | |
 | 98 | 2026-11-01 | The alarm whoop is 30% slower: 1.3 s instead of 1 s, repeated every 2.3 s (still 1 s of quiet in between) | 2.38 | |
 | 97 | 2026-11-01 | Alarm: a slow whoop (1 s) every 2 s with 1 s of quiet in between (new alarm.ogg); the microphone listens while it rings (silent voice session with the own server, `[device_call] [alarm]`), so saying "stop" ends it, and the screen keeps showing the timer instead of Connecting / Listening; `/api/power?action=silence` | 2.38 | |

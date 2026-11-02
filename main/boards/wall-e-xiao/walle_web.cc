@@ -291,6 +291,11 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "ram_free_kb", heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024);
     cJSON_AddNumberToObject(root, "ram_total_kb", heap_caps_get_total_size(MALLOC_CAP_INTERNAL) / 1024);
     cJSON_AddNumberToObject(root, "psram_free_kb", heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    cJSON_AddNumberToObject(root, "ram_min_kb", heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024);   // the lowest internal RAM has been since the start
+    cJSON_AddNumberToObject(root, "ram_largest_kb", heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024);
+#ifdef CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP
+    cJSON_AddBoolToObject(root, "net_in_psram", true);   // TEST build 100: the Wi-Fi and lwIP buffers are in PSRAM
+#endif
     cJSON_AddNumberToObject(root, "psram_total_kb", heap_caps_get_total_size(MALLOC_CAP_SPIRAM) / 1024);
     return SendJson(req, root);
 }

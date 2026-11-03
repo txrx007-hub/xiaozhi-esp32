@@ -65,6 +65,7 @@ std::string StoreKey(const char* key) {
     } kShort[] = {
         {"camera_brightness", "cam_brightness"},
         {"camera_saturation", "cam_saturation"},
+        {"music_visualizer", "music_visualize"},   // the name it has always been stored under (shortened by the fallback below): the saved value stays
     };
     for (const auto& s : kShort) {
         if (std::strcmp(key, s.name) == 0) {

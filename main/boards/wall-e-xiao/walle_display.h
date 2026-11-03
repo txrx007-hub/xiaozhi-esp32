@@ -53,6 +53,20 @@ public:
     // over the time since the previous call. Static screens read 0.
     int Fps();
 
+    // Audit counters since boot (cumulative, /api/status): the time LVGL spent rendering and how many renders, the screen area (pixels) and number of
+    // invalidations, and the time and number of calls of the music bars' update. Differences between two readings show where the screen's time goes.
+    struct UiStats {
+        uint64_t render_us;
+        uint32_t renders;
+        uint64_t inv_px;
+        uint32_t invs;
+        uint64_t bars_us;
+        uint32_t bars_n;
+    };
+    UiStats Stats() const {
+        return {render_us_.load(), render_n_.load(), inv_px_.load(), inv_n_.load(), bars_us_.load(), bars_n_.load()};
+    }
+
     void SetBlank(bool blank);  // nap: panel off, backlight stays on (wired to 3V3)
     bool IsBlank() const { return blank_; }
 
@@ -160,6 +174,18 @@ private:
     esp_timer_handle_t boot_timer_ = nullptr;
 
     std::atomic<uint32_t> frame_count_{0};
+    std::atomic<uint64_t> render_us_{0};
+    std::atomic<uint32_t> render_n_{0};
+    int64_t render_began_us_ = 0;   // LVGL task only
+    std::atomic<uint64_t> inv_px_{0};
+    std::atomic<uint32_t> inv_n_{0};
+    std::atomic<uint64_t> bars_us_{0};
+    std::atomic<uint32_t> bars_n_{0};
+    // What the bars were last drawn with, so a bar that did not change costs the screen nothing (-1 = not drawn yet)
+    int bar_h_[walle_spectrum::kBands];
+    int peak_y_[walle_spectrum::kBands];
+    uint32_t bar_color_[walle_spectrum::kBands];
+    uint32_t bars_tick_ = 0;        // music: the bars move every second tick of the 40 ms timer (12.5 per second)
     std::mutex fps_mutex_;
     int64_t fps_last_us_ = 0;
     uint32_t fps_last_count_ = 0;

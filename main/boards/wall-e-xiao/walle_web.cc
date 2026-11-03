@@ -266,6 +266,19 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "eyes", WalleSettings::GetInstance().GetBool("eyes_follow"));     // eyes follow: its own toggle next to it (firmware build 94 and newer)
     cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());
     cJSON_AddNumberToObject(root, "fps", board.walle_display() != nullptr ? board.walle_display()->Fps() : 0);
+    if (auto* display = board.walle_display(); display != nullptr) {   // audit counters since boot (cumulative): differences between two readings show where the screen's time goes
+        const auto s = display->Stats();
+        cJSON_AddNumberToObject(root, "ui_render_us", static_cast<double>(s.render_us));
+        cJSON_AddNumberToObject(root, "ui_renders", s.renders);
+        cJSON_AddNumberToObject(root, "ui_inv_px", static_cast<double>(s.inv_px));
+        cJSON_AddNumberToObject(root, "ui_invs", s.invs);
+        cJSON_AddNumberToObject(root, "ui_bars_us", static_cast<double>(s.bars_us));
+        cJSON_AddNumberToObject(root, "ui_bars_n", s.bars_n);
+    }
+    if (auto* mic = board.walle_codec(); mic != nullptr) {
+        cJSON_AddNumberToObject(root, "fft_us", static_cast<double>(mic->spectrum_us()));
+        cJSON_AddNumberToObject(root, "fft_n", mic->spectrum_windows());
+    }
     cJSON_AddNumberToObject(
         root, "heap_largest_kb",
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024);

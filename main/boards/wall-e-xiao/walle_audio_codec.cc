@@ -162,7 +162,13 @@ int WalleAudioCodec::Write(const int16_t* data, int samples) {
             fft_accum_count_ += take;
             offset += take;
             if (fft_accum_count_ == kFftSize) {
-                AnalyzeSpectrumWindow();
+                if (++spectrum_skip_ >= spectrum_stride_.load()) {
+                    spectrum_skip_ = 0;
+                    const int64_t began = esp_timer_get_time();
+                    AnalyzeSpectrumWindow();
+                    spectrum_us_.fetch_add(static_cast<uint64_t>(esp_timer_get_time() - began));
+                    spectrum_n_.fetch_add(1);
+                }
                 fft_accum_count_ = 0;
             }
         }
@@ -203,6 +209,7 @@ void WalleAudioCodec::AnalyzeSpectrumWindow() {
         frame = spectrum_;  // keep the previous peaks to decay from
     }
     std::memcpy(frame.wave, wave, sizeof(wave));
+    const int stride = spectrum_stride_.load();
     for (int band = 0; band < walle_spectrum::kBands; ++band) {
         float peak_mag = 0.0f;
         for (int bin = band_ranges_[band].lo; bin <= band_ranges_[band].hi; ++bin) {
@@ -220,12 +227,12 @@ void WalleAudioCodec::AnalyzeSpectrumWindow() {
         // decay from the moment it's set, which read as jittery rather than a held peak dot.
         if (value >= frame.peaks[band]) {
             frame.peaks[band] = value;
-            peak_hold_windows_[band] = kPeakHoldWindows;
+            peak_hold_windows_[band] = std::max(1, kPeakHoldWindows / stride);   // the same time in seconds when windows are skipped
         } else if (peak_hold_windows_[band] > 0) {
             --peak_hold_windows_[band];
         } else {
             frame.peaks[band] =
-                static_cast<uint8_t>(std::max(0, frame.peaks[band] - kPeakDecayPerWindow));
+                static_cast<uint8_t>(std::max(0, frame.peaks[band] - kPeakDecayPerWindow * stride));
         }
     }
     std::lock_guard<std::mutex> lock(spectrum_mutex_);

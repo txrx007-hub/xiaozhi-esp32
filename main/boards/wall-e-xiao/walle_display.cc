@@ -297,6 +297,29 @@ void WalleDisplay::SetupUI() {
             static_cast<WalleDisplay*>(lv_event_get_user_data(e))->frame_count_.fetch_add(1);
         },
         LV_EVENT_RENDER_START, this);
+    // Audit counters (see Stats()): how long each render takes and how much of the screen is marked for redrawing.
+    lv_display_add_event_cb(
+        lv_display_get_default(),
+        [](lv_event_t* e) { static_cast<WalleDisplay*>(lv_event_get_user_data(e))->render_began_us_ = esp_timer_get_time(); },
+        LV_EVENT_RENDER_START, this);
+    lv_display_add_event_cb(
+        lv_display_get_default(),
+        [](lv_event_t* e) {
+            auto* self = static_cast<WalleDisplay*>(lv_event_get_user_data(e));
+            self->render_us_.fetch_add(static_cast<uint64_t>(esp_timer_get_time() - self->render_began_us_));
+            self->render_n_.fetch_add(1);
+        },
+        LV_EVENT_RENDER_READY, this);
+    lv_display_add_event_cb(
+        lv_display_get_default(),
+        [](lv_event_t* e) {
+            auto* self = static_cast<WalleDisplay*>(lv_event_get_user_data(e));
+            if (const auto* a = static_cast<const lv_area_t*>(lv_event_get_param(e))) {
+                self->inv_px_.fetch_add(static_cast<uint64_t>(lv_area_get_width(a)) * static_cast<uint64_t>(lv_area_get_height(a)));
+                self->inv_n_.fetch_add(1);
+            }
+        },
+        LV_EVENT_INVALIDATE_AREA, this);
     // Order matters on the top layer: bars under the clock, status dot above everything.
     CreateRibbon();
     CreateVisuals();
@@ -464,6 +487,11 @@ void WalleDisplay::CreateRibbon() {
                    kSpectrumBarWidth, kPeakHeight, 0xffffff, 1);
     }
     lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < walle_spectrum::kBands; ++i) {   // nothing drawn yet: the first frame sets every bar
+        bar_h_[i] = -1;
+        peak_y_[i] = -1;
+        bar_color_[i] = 0xFFFFFFFFu;
+    }
 }
 
 void WalleDisplay::UpdateSpectrumBars() {
@@ -485,29 +513,45 @@ void WalleDisplay::UpdateSpectrumBars() {
         lv_obj_set_y(spectrum_root_, baseline - strip_h);
     }
     const walle_spectrum::Frame frame = spectrum_source_();
+    // Only what changed since the last frame is handed to LVGL: every setter marks the bar's area for redrawing, so a bar that stays put costs nothing.
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
         const int h = std::max(2, frame.bands[i] * strip_h / 255);
-        lv_obj_set_height(spectrum_bars_[i], h);
-        lv_obj_set_y(spectrum_bars_[i], strip_h - h);  // grows up from the bottom, not mirrored
+        if (h != bar_h_[i]) {
+            lv_obj_set_height(spectrum_bars_[i], h);
+            lv_obj_set_y(spectrum_bars_[i], strip_h - h);  // grows up from the bottom, not mirrored
+            bar_h_[i] = h;
+        }
         if (rainbow) {
             // Same bars and peak-hold as winamp, but every bar keeps its own hue, sweeping once
             // around the wheel from green (bar 0) through cyan, blue, violet, magenta, red,
             // orange, yellow and lime - brighter at the bottom, dimmer at the top, with a pale
             // tint of the bar's own color as the peak dot (like the classic rainbow equalizer).
             const uint16_t hue = static_cast<uint16_t>((120 + i * 360 / walle_spectrum::kBands) % 360);
-            lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 50), 0);
-            lv_obj_set_style_bg_grad_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 100), 0);
-            lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_VER, 0);
-            lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hsv_to_rgb(hue, 35, 100), 0);
+            const uint32_t key = 0x01000000u | hue;
+            if (bar_color_[i] != key) {
+                lv_obj_set_style_bg_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 50), 0);
+                lv_obj_set_style_bg_grad_color(spectrum_bars_[i], lv_color_hsv_to_rgb(hue, 100, 100), 0);
+                lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_VER, 0);
+                lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hsv_to_rgb(hue, 35, 100), 0);
+                bar_color_[i] = key;
+            }
         } else {
-            lv_obj_set_style_bg_color(spectrum_bars_[i], WinampBandColor(frame.bands[i]), 0);
-            lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_NONE, 0);
-            lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hex(0xffffff), 0);
+            const lv_color_t color = WinampBandColor(frame.bands[i]);
+            const uint32_t key = lv_color_to_u32(color) & 0x00FFFFFFu;
+            if (bar_color_[i] != key) {
+                lv_obj_set_style_bg_color(spectrum_bars_[i], color, 0);
+                lv_obj_set_style_bg_grad_dir(spectrum_bars_[i], LV_GRAD_DIR_NONE, 0);
+                lv_obj_set_style_bg_color(spectrum_peaks_[i], lv_color_hex(0xffffff), 0);
+                bar_color_[i] = key;
+            }
         }
 
         const int peak_h = frame.peaks[i] * strip_h / 255;
-        lv_obj_set_y(spectrum_peaks_[i],
-                    std::clamp(strip_h - peak_h - kPeakHeight, 0, strip_h - kPeakHeight));
+        const int peak_y = std::clamp(strip_h - peak_h - kPeakHeight, 0, strip_h - kPeakHeight);
+        if (peak_y != peak_y_[i]) {
+            lv_obj_set_y(spectrum_peaks_[i], peak_y);
+            peak_y_[i] = peak_y;
+        }
     }
 }
 
@@ -550,8 +594,12 @@ void WalleDisplay::UpdateRibbon() {
         }
         const bool strip = visual_mode == walle_spectrum::Mode::kWinamp ||
                            visual_mode == walle_spectrum::Mode::kRainbow;
-        if (strip) {
+        // While music plays the bars move every second tick (12.5 times a second): half the redraws, and the screen no longer competes with the audio for the CPU.
+        if (strip && (!music_visual_.load() || (bars_tick_++ & 1u) == 0)) {
+            const int64_t began = esp_timer_get_time();
             UpdateSpectrumBars();
+            bars_us_.fetch_add(static_cast<uint64_t>(esp_timer_get_time() - began));
+            bars_n_.fetch_add(1);
         }
         if (strip != spectrum_visible_) {
             SetShown(spectrum_root_, strip);

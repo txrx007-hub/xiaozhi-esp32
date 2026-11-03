@@ -337,6 +337,7 @@ WalleAudioCodec* WallEBoard::walle_codec() {
         display_->SetMusicHook([c](bool on) {
             auto& st = WalleSettings::GetInstance();
             c->SetSpectrumEnabled(on ? st.GetBool("music_visualizer") : st.GetInt("visualizer_mode") != 0);
+            c->SetSpectrumStride(on ? 2 : 1);   // music: every second window (the bars there move 12.5 times a second); speech keeps them all
         });
         return c;
     }();

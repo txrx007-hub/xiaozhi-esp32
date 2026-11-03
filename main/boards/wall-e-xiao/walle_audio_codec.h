@@ -60,7 +60,13 @@ public:
     // the .cc for why that is safe to do inline on the audio task. Skipped entirely (zero extra
     // CPU) unless enabled, since Write() runs continuously whenever anything plays.
     void SetSpectrumEnabled(bool enabled) { spectrum_enabled_ = enabled; }
+    // Analyse every n-th window only (n = 1: all, about 23 a second; music uses 2, the bars there move 12.5 times a second anyway). The peak dots hold and fall
+    // in the same real time at any n.
+    void SetSpectrumStride(int n) { spectrum_stride_ = n < 1 ? 1 : (n > 4 ? 4 : n); }
     walle_spectrum::Frame TakeSpectrum() const;
+    // Audit: windows analysed since boot and the time they took (microseconds), for /api/status.
+    uint64_t spectrum_us() const { return spectrum_us_.load(); }
+    uint32_t spectrum_windows() const { return spectrum_n_.load(); }
 
 protected:
     int Write(const int16_t* data, int samples) override;
@@ -99,6 +105,10 @@ private:
     // Spectrum analysis state: touched only from Write(), which always runs on the same audio
     // task, so none of this (other than the published spectrum_ below) needs its own lock.
     std::atomic<bool> spectrum_enabled_{false};
+    std::atomic<int> spectrum_stride_{1};
+    int spectrum_skip_ = 0;
+    std::atomic<uint64_t> spectrum_us_{0};
+    std::atomic<uint32_t> spectrum_n_{0};
     int16_t fft_accum_[kFftSize];
     int fft_accum_count_ = 0;
     float fft_buffer_[kFftSize * 2];  // interleaved re/im for dsps_fft2r_fc32

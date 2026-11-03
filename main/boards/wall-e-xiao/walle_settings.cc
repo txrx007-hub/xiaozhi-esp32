@@ -121,6 +121,8 @@ WalleSettings::WalleSettings() {
          "camera colour saturation: higher for stronger colours, lower for paler ones (0 = sensor default)"},
         {"camera_af", Kind::kBool, 0, 1, 1,
          "autofocus of the OV5640 camera: on keeps the picture sharp at any distance (the lens hunts a little when the scene changes), off holds the focus where it is (does nothing on other cameras)"},
+        {"camera_idle_off", Kind::kBool, 0, 1, 1,
+         "stop the camera between pictures: the sensor then does not stream 800x600 into the memory all day, which leaves the processor and memory to the audio and keeps the camera cooler; the first picture after a pause takes about a second longer"},
         {"camera_drive", Kind::kInt, 0, 3, 0,
          "OV5640 signal strength to the chip: 0 is the weakest and coolest (1x, what the chip starts with here), 3 is 4x; raise it if pictures show speckles or lines (not shown on the settings pages)"},
         {"wake_chirp", Kind::kBool, 0, 1, 1, "short chirp right after the wake word"},

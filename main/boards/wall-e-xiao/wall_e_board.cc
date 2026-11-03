@@ -247,8 +247,9 @@ void WallEBoard::ApplyCameraSettings() {
     camera_->SetPadDrive(WalleSettings::GetInstance().GetInt("camera_drive"));
     camera_->SetAutofocus(WalleSettings::GetInstance().GetBool("camera_af"));
     camera_->SetAeLevel(WalleSettings::GetInstance().GetInt("camera_brightness"));
-    if (const int saturation = WalleSettings::GetInstance().GetInt("camera_saturation"); saturation != 0) {
-        camera_->SetSaturation(saturation);   // 0 is what the sensor starts with: nothing to write
+    camera_->SetIdleOff(WalleSettings::GetInstance().GetBool("camera_idle_off"));
+    if (const int saturation = WalleSettings::GetInstance().GetInt("camera_saturation"); saturation != 0 || camera_->SensorName() == "OV5640") {
+        camera_->SetSaturation(saturation);   // 0 is what the OV3660 starts with: nothing to write; the OV5640 starts with unequal chroma gains: always write
     }
 }
 
@@ -745,6 +746,10 @@ void WallEBoard::ApplySetting(const std::string& key) {
     } else if (key == "camera_af") {
         if (camera_ != nullptr) {
             camera_->SetAutofocus(settings.GetBool("camera_af"));
+        }
+    } else if (key == "camera_idle_off") {
+        if (camera_ != nullptr) {
+            camera_->SetIdleOff(settings.GetBool("camera_idle_off"));
         }
     } else if (key == "camera_drive") {
         if (camera_ != nullptr) {

@@ -79,6 +79,9 @@ WalleCamera::~WalleCamera() { CollageEnd(); }
 void WalleCamera::EnableAutoWhiteBalance() {
     constexpr uint16_t kAwbControl3 = 0x5183;
     constexpr uint8_t kAwbControl3Value = 0x94;
+    if (sensor_name_ != "OV3660") {
+        return;   // the OV5640's start-up table sets its own white balance (0x5183 = 0x14); this value is the OV3660's and tinted skin blue there
+    }
     if (!WriteSensorReg(kAwbControl3, kAwbControl3Value)) {
         ESP_LOGW(TAG, "Could not enable the sensor's auto white balance");
     }
@@ -98,6 +101,19 @@ bool WalleCamera::SetSaturation(int level) {
         {0x1d, 0x60, 0x03, 0x10, 0x9c, 0xac, 0xa2, 0x8b, 0x17, 0x01, 0x98},  // +3
         {0x1d, 0x60, 0x03, 0x11, 0xa8, 0xb9, 0xaf, 0x96, 0x19, 0x01, 0x98},  // +4
     };
+    if (sensor_name_ == "OV5640") {
+        // The sensor's start-up table sets the red chroma gain (V, 0x5584) to 0x10 and the blue one (U, 0x5583) to 0x40: whites, greys and
+        // blacks carry no chroma and look right, but skin and tongue lose their red and turn blue/purple. Both the same, 0x40 = neutral.
+        if (level < -4 || level > 4) {
+            return false;
+        }
+        const uint8_t gain = static_cast<uint8_t>(0x40 + level * 8);
+        const bool ok = WriteSensorReg(0x5583, gain) && WriteSensorReg(0x5584, gain);
+        if (ok) {
+            ESP_LOGI(TAG, "OV5640 chroma gain U = V = 0x%02x (colour %d)", gain, level);
+        }
+        return ok;
+    }
     if (level < -4 || level > 4 || sensor_name_ != "OV3660") {
         return false;
     }
@@ -170,6 +186,45 @@ bool WalleCamera::AutofocusCommand(uint8_t command) {
     return WriteSensorReg(kAfCmdAck, 0x01) && WriteSensorReg(kAfCmdMain, command) && WaitAutofocusReg(kAfCmdAck, 0x00, 1000);
 }
 
+// Continuous focus: ack = 1, then the command. This firmware either clears the acknowledge (the plain handshake) or, in continuous mode, goes to
+// status 0x00 (focusing) / 0x10 (sharp) and leaves the acknowledge set: both mean the command was taken, so neither is waited for to the end.
+bool WalleCamera::AutofocusContinuous() {
+    if (!WriteSensorReg(kAfCmdAck, 0x01) || !WriteSensorReg(kAfCmdMain, kAfCmdContinuous)) {
+        return false;
+    }
+    const int64_t until = esp_timer_get_time() + 1000 * 1000;
+    do {
+        uint8_t ack = 0xEE;
+        uint8_t status = 0xEE;
+        if (ReadSensorReg(kAfCmdAck, &ack) && ack == 0x00) {
+            return true;
+        }
+        if (ReadSensorReg(kAfFwStatus, &status) && (status == kAfStatusFocusing || status == kAfStatusFocused)) {
+            return true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10) > 0 ? pdMS_TO_TICKS(10) : 1);
+    } while (esp_timer_get_time() < until);
+    return false;
+}
+
+// After a picture woke the sensor: the focus task re-requests continuous focus (the processor lost it in the power-down), and the lens needs
+// a moment to find the focus. Wait for both, at most 2.5 s, so the first picture after a pause is sharp.
+void WalleCamera::WaitSensorSettled() {
+    if (af_state_ == AfState::kNone || !af_wanted_) {
+        return;
+    }
+    const int64_t start = esp_timer_get_time();
+    const int64_t until = start + 2500 * 1000;
+    while (esp_timer_get_time() < until && (af_busy_ || !af_applied_) && af_state_ != AfState::kFailed) {
+        vTaskDelay(pdMS_TO_TICKS(20) > 0 ? pdMS_TO_TICKS(20) : 1);
+    }
+    uint8_t status = 0xEE;
+    while (esp_timer_get_time() < until && ReadSensorReg(kAfFwStatus, &status) && status == kAfStatusFocusing) {
+        vTaskDelay(pdMS_TO_TICKS(20) > 0 ? pdMS_TO_TICKS(20) : 1);
+    }
+    ESP_LOGI(TAG, "Sensor settled after %d ms (focus status 0x%02x)", static_cast<int>((esp_timer_get_time() - start) / 1000), status);
+}
+
 void WalleCamera::LogAutofocusRegs(const char* where) {
     uint8_t main = 0xEE, ack = 0xEE, status = 0xEE;
     ReadSensorReg(kAfCmdMain, &main);
@@ -178,11 +233,19 @@ void WalleCamera::LogAutofocusRegs(const char* where) {
     ESP_LOGI(TAG, "Autofocus %s: command 0x%02x, ack 0x%02x, firmware status 0x%02x", where, main, ack, status);
 }
 
-bool WalleCamera::AutofocusStart() {
+int WalleCamera::WarmupMs() const {
+    // With focus on, the wait for the focus (WaitSensorSettled) gives the exposure time to settle as well.
+    return af_state_ != AfState::kNone && af_wanted_ ? 300 : 1000;
+}
+
+bool WalleCamera::AutofocusStart(bool resume) {
     LogAutofocusRegs("before start");
+    if (resume && AutofocusContinuous()) {
+        return true;   // the processor still has its program: just ask for continuous focus, the lens stays where it was
+    }
     // First the order esp32-camera's ov5640_af_start() uses: the focus is released, then continuous focus is requested.
     if (WriteSensorReg(kAfCmdMain, 0x01) && WriteSensorReg(kAfCmdMain, kAfCmdRelease) && WaitAutofocusReg(kAfCmdAck, 0x00, 2000) &&
-        AutofocusCommand(kAfCmdContinuous)) {
+        AutofocusContinuous()) {
         return true;
     }
     LogAutofocusRegs("after the first way failed");
@@ -209,6 +272,16 @@ void WalleCamera::AutofocusWork() {
             return;
         }
         if (want) {
+            const bool first = !af_loaded_;   // the settle log below is for the first start only
+            if (af_loaded_) {
+                // After an idle stop of the stream the sensor was in software power-down: is the focus processor still running its program?
+                uint8_t alive = 0xEE;
+                if (!ReadSensorReg(kAfFwStatus, &alive) || (alive != kAfStatusIdle && alive != kAfStatusFocusing && alive != kAfStatusFocused)) {
+                    ESP_LOGW(TAG, "Autofocus: the focus processor lost its program (status 0x%02x), loading it again", alive);
+                    af_loaded_ = false;
+                    continue;
+                }
+            }
             if (!af_loaded_) {
                 af_state_ = AfState::kLoading;
                 const int64_t start = esp_timer_get_time();
@@ -221,7 +294,7 @@ void WalleCamera::AutofocusWork() {
                 ESP_LOGI(TAG, "Autofocus firmware loaded (%u bytes, %d ms)", static_cast<unsigned>(sizeof(ov5640_af_firmware)),
                          static_cast<int>((esp_timer_get_time() - start) / 1000));
             }
-            if (!AutofocusStart()) {
+            if (!AutofocusStart(!first)) {
                 ESP_LOGW(TAG, "Autofocus: the focus processor did not accept the command");
                 af_state_ = AfState::kFailed;
                 return;
@@ -231,7 +304,7 @@ void WalleCamera::AutofocusWork() {
             ESP_LOGI(TAG, "Autofocus on (continuous)");
             // For the log: how the focus processor settles (0x00 focusing, 0x10 sharp), for the first few seconds only.
             uint8_t last = 0xEE;
-            for (int i = 0; i < 24 && af_wanted_; ++i) {
+            for (int i = 0; first && i < 24 && af_wanted_; ++i) {
                 uint8_t now = last;
                 if (ReadSensorReg(kAfFwStatus, &now) && now != last) {
                     ESP_LOGI(TAG, "Autofocus status 0x%02x after %d ms", now, i * 250);
@@ -268,6 +341,11 @@ void WalleCamera::SetAutofocus(bool on) {
     if (af_state_ == AfState::kFailed) {
         af_state_ = AfState::kOff;   // switching it again is a new try
     }
+    if (!StreamRunning()) {
+        // The focus processor only answers while the sensor streams. Waking the stream makes OnStreamStarted() start the work when focus is
+        // wanted; switching the focus off falls through to the task below, which pauses it.
+        WakeStream();
+    }
     if (af_wanted_ == af_applied_ || af_busy_.exchange(true)) {
         return;
     }
@@ -276,6 +354,16 @@ void WalleCamera::SetAutofocus(bool on) {
         af_busy_ = false;
         af_state_ = AfState::kFailed;
     }
+}
+
+void WalleCamera::OnStreamStarted() {
+    if (af_state_ == AfState::kNone || !af_wanted_) {
+        return;
+    }
+    // The stream was stopped while idle and the sensor slept: the focus processor stopped with it. Ask for continuous focus again (in a task of
+    // its own, this runs with the capture lock held); AutofocusWork loads the program again if the sensor lost it.
+    af_applied_ = false;
+    SetAutofocus(true);
 }
 
 const char* WalleCamera::AutofocusState() const {

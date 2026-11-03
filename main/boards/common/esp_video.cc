@@ -1,6 +1,7 @@
 #include "sdkconfig.h"
 
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <errno.h>
@@ -61,6 +62,21 @@
 
 #define TAG "EspVideo"
 
+namespace {
+
+// WALL-E: idle stop of the sensor stream (see EspVideo::SetIdleOff).
+constexpr int64_t kIdleOffUs = 6 * 1000 * 1000;      // stream stops this long after the last picture
+
+// Where the internal RAM goes: the audio path and the Wi-Fi stack live on it, and it is what runs short first.
+void LogHeap(const char* where) {
+    ESP_LOGI(TAG, "heap %s: internal free %u KB (largest %u KB), PSRAM free %u KB", where,
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+}
+
+}  // namespace
+
 #if CONFIG_XIAOZHI_CAMERA_MIRROR_CONFIGURED
 #if CONFIG_XIAOZHI_CAMERA_HMIRROR
 static constexpr bool kConfiguredHMirror = true;
@@ -117,6 +133,7 @@ EspVideo::EspVideo(const esp_video_init_config_t& config) { Open(config); }
 
 // WALL-E: the constructor's work, also used by Restart() to bring the same camera object up again.
 void EspVideo::Open(const esp_video_init_config_t& config) {
+    LogHeap("before esp_video_init");
     if (esp_video_init(&config) != ESP_OK) {
         ESP_LOGE(TAG, "esp_video_init failed");
         return;
@@ -354,6 +371,7 @@ void EspVideo::Open(const esp_video_init_config_t& config) {
         }
     }
 
+    LogHeap("buffers ready, stream still off");
     int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(video_fd_, VIDIOC_STREAMON, &type) != 0) {
         ESP_LOGE(TAG, "VIDIOC_STREAMON failed");
@@ -362,6 +380,11 @@ void EspVideo::Open(const esp_video_init_config_t& config) {
         sensor_format_ = 0;
         return;
     }
+    stream_since_us_ = esp_timer_get_time();
+    last_use_us_ = stream_since_us_;
+    stream_running_ = true;
+    ++stream_starts_;
+    LogHeap("stream on");
 
     // WALL-E: esp_video's own default is portMAX_DELAY - no timeout at all - so if the sensor
     // ever stops producing frames (a stuck DVP bus, a brownout under motor load, ...) VIDIOC_DQBUF
@@ -406,14 +429,165 @@ void EspVideo::Open(const esp_video_init_config_t& config) {
 #endif  // CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE
 }
 
-EspVideo::~EspVideo() { Close(); }
+EspVideo::~EspVideo() {
+    if (idle_timer_ != nullptr) {
+        esp_timer_stop(static_cast<esp_timer_handle_t>(idle_timer_));
+        esp_timer_delete(static_cast<esp_timer_handle_t>(idle_timer_));
+        idle_timer_ = nullptr;
+    }
+    Close();
+}
+
+bool EspVideo::StreamStartLocked() {
+    if (stream_running_) {
+        return true;
+    }
+    if (video_fd_ < 0 || !streaming_on_) {
+        return false;
+    }
+    const int64_t t0 = esp_timer_get_time();
+    // STREAMOFF emptied the queue and reset the buffers: hand them back before the stream starts again.
+    for (size_t i = 0; i < mmap_buffers_.size(); ++i) {
+        struct v4l2_buffer buf = {};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        buf.index = i;
+        if (ioctl(video_fd_, VIDIOC_QBUF, &buf) != 0) {
+            ESP_LOGW(TAG, "stream start: VIDIOC_QBUF %u failed, errno=%d", (unsigned)i, errno);
+        }
+    }
+    LogHeap("before stream start");
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(video_fd_, VIDIOC_STREAMON, &type) != 0) {
+        ESP_LOGE(TAG, "stream start: VIDIOC_STREAMON failed, errno=%d", errno);
+        return false;
+    }
+    stream_since_us_ = esp_timer_get_time();
+    last_use_us_ = stream_since_us_;
+    stream_running_ = true;
+    ++stream_starts_;
+    // The sensor wakes from software power-down and its exposure settles: throw away the frames of the first second (at least one must arrive).
+    uint32_t frames = 0;
+    const int64_t warmup_us = static_cast<int64_t>(WarmupMs()) * 1000;
+    while (frames == 0 || esp_timer_get_time() - t0 < warmup_us) {
+        struct v4l2_buffer buf = {};
+        buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        buf.memory = V4L2_MEMORY_MMAP;
+        if (ioctl(video_fd_, VIDIOC_DQBUF, &buf) != 0) {
+            break;   // the DQBUF timeout (3 s) ran out: no frames
+        }
+        if (ioctl(video_fd_, VIDIOC_QBUF, &buf) != 0) {
+            ESP_LOGE(TAG, "stream start: VIDIOC_QBUF failed");
+            break;
+        }
+        ++frames;
+    }
+    last_warmup_frames_ = frames;
+    ESP_LOGI(TAG, "stream started: %u warm-up frame(s) in %d ms (start #%u)", (unsigned)frames,
+             static_cast<int>((esp_timer_get_time() - t0) / 1000), (unsigned)stream_starts_.load());
+    LogHeap("stream started");
+    if (frames == 0) {
+        ESP_LOGE(TAG, "stream started but no frame arrived; stopping it again");
+        StreamStopLocked();
+        return false;
+    }
+    OnStreamStarted();
+    return true;
+}
+
+void EspVideo::StreamStopLocked() {
+    if (!stream_running_ || video_fd_ < 0) {
+        return;
+    }
+    LogHeap("before stream stop");
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(video_fd_, VIDIOC_STREAMOFF, &type) != 0) {
+        ESP_LOGE(TAG, "stream stop: VIDIOC_STREAMOFF failed, errno=%d", errno);
+        return;
+    }
+    stream_on_total_us_ += esp_timer_get_time() - stream_since_us_;
+    stream_running_ = false;
+    ++stream_stops_;
+    ESP_LOGI(TAG, "stream stopped while idle (stop #%u, on for %u s in total)", (unsigned)stream_stops_.load(), (unsigned)(stream_on_total_us_ / 1000000));
+    LogHeap("stream stopped");
+}
+
+void EspVideo::IdleTick(void* arg) {
+    auto* self = static_cast<EspVideo*>(arg);
+    if (!self->idle_off_ || !self->stream_running_ || esp_timer_get_time() - self->last_use_us_ < kIdleOffUs) {
+        return;
+    }
+    if (!self->capture_mutex_.try_lock()) {
+        return;   // a picture is being taken; the next tick looks again
+    }
+    std::lock_guard<std::mutex> lock(self->capture_mutex_, std::adopt_lock);
+    if (self->stream_running_ && esp_timer_get_time() - self->last_use_us_ >= kIdleOffUs) {
+        self->StreamStopLocked();
+    }
+}
+
+void EspVideo::SetIdleOff(bool on) {
+    if (on == idle_off_) {
+        return;
+    }
+    idle_off_ = on;
+    if (on) {
+        last_use_us_ = esp_timer_get_time();
+        if (idle_timer_ == nullptr) {
+            esp_timer_create_args_t args = {};
+            args.callback = &EspVideo::IdleTick;
+            args.arg = this;
+            args.dispatch_method = ESP_TIMER_TASK;
+            args.name = "cam_idle";
+            esp_timer_handle_t handle = nullptr;
+            if (esp_timer_create(&args, &handle) != ESP_OK) {
+                ESP_LOGE(TAG, "idle stop: no timer");
+                idle_off_ = false;
+                return;
+            }
+            idle_timer_ = handle;
+        }
+        esp_timer_start_periodic(static_cast<esp_timer_handle_t>(idle_timer_), 1000 * 1000);
+        ESP_LOGI(TAG, "idle stop on: the stream stops %d s after the last picture", static_cast<int>(kIdleOffUs / 1000000));
+    } else {
+        if (idle_timer_ != nullptr) {
+            esp_timer_stop(static_cast<esp_timer_handle_t>(idle_timer_));
+        }
+        ESP_LOGI(TAG, "idle stop off: the stream runs all the time");
+        WakeStream();
+    }
+}
+
+bool EspVideo::WakeStream() {
+    std::lock_guard<std::mutex> lock(capture_mutex_);
+    last_use_us_ = esp_timer_get_time();
+    return StreamStartLocked();
+}
+
+const char* EspVideo::StreamState() const {
+    if (video_fd_ < 0) {
+        return "none";
+    }
+    return stream_running_ ? "on" : "off";
+}
+
+uint32_t EspVideo::StreamOnSeconds() const {
+    uint64_t total = stream_on_total_us_;
+    if (stream_running_) {
+        total += esp_timer_get_time() - stream_since_us_;
+    }
+    return static_cast<uint32_t>(total / 1000000);
+}
 
 // WALL-E: the destructor's work, also used by Restart(): stream off, buffers unmapped, device closed, esp_video torn down.
 void EspVideo::Close() {
-    if (streaming_on_ && video_fd_ >= 0) {
+    if (stream_running_ && video_fd_ >= 0) {
         int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         ioctl(video_fd_, VIDIOC_STREAMOFF, &type);
+        stream_on_total_us_ += esp_timer_get_time() - stream_since_us_;
+        ++stream_stops_;
     }
+    stream_running_ = false;
     streaming_on_ = false;
     for (auto& b : mmap_buffers_) {
         if (b.start && b.length) {
@@ -476,6 +650,7 @@ bool EspVideo::WriteSensorReg(uint16_t reg, uint8_t value) {
     if (video_fd_ < 0) {
         return false;
     }
+    last_use_us_ = esp_timer_get_time();   // sensor set-up work (focus program, settings) keeps the stream from being stopped under it
     esp_cam_sensor_reg_val_t reg_val = {};
     reg_val.regaddr = reg;
     reg_val.value = value;
@@ -495,6 +670,7 @@ bool EspVideo::ReadSensorReg(uint16_t reg, uint8_t* value) {
     if (video_fd_ < 0 || value == nullptr) {
         return false;
     }
+    last_use_us_ = esp_timer_get_time();
     esp_cam_sensor_reg_val_t reg_val = {};
     reg_val.regaddr = reg;
     struct v4l2_ext_control ctrl = {};
@@ -516,6 +692,10 @@ bool EspVideo::ProbeFrame() {
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (!streaming_on_ || video_fd_ < 0) {
         return false;
+    }
+    last_use_us_ = esp_timer_get_time();
+    if (!stream_running_) {
+        return StreamStartLocked();   // it only returns true after a frame arrived: that is the proof
     }
     struct v4l2_buffer buf = {};
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -596,6 +776,11 @@ bool EspVideo::Capture() { return CaptureImpl(3, true); }
 // first one is from before or during the move (blurred, or the old view), so a look after a turn takes all three. Between turns of the follow mode one is enough.
 // preview = false: nothing is made for the screen (saves the colour conversion of the preview, which nobody sees in a look).
 bool EspVideo::CaptureImpl(int frames, bool preview) {
+    // WALL-E: a stream stopped while idle is woken before the capture lock is taken, so the sensor's own set-up (the focus) can use the lock
+    // while the picture waits for it.
+    if (!stream_running_ && streaming_on_ && video_fd_ >= 0 && WakeStream()) {
+        WaitSensorSettled();
+    }
     std::lock_guard<std::mutex> lock(capture_mutex_);
     if (encoder_thread_.joinable()) {
         encoder_thread_.join();
@@ -607,7 +792,20 @@ bool EspVideo::CaptureImpl(int frames, bool preview) {
         return false;
     }
 
-    const int take = std::clamp(frames, 1, 3);
+    // WALL-E: a picture wakes a stream that was stopped while idle; after the warm-up the next frame is a fresh one, so one is enough.
+    bool cold = false;
+    if (!stream_running_) {
+        if (!StreamStartLocked()) {
+            return false;
+        }
+        cold = true;
+    }
+    struct UseStamp {   // the idle countdown starts when the picture is done, however it ends
+        std::atomic<int64_t>* t;
+        ~UseStamp() { *t = esp_timer_get_time(); }
+    } use_stamp{&last_use_us_};
+
+    const int take = cold ? 1 : std::clamp(frames, 1, 3);
     // WALL-E: which task takes pictures, and how much PSRAM is free before each (the frame copy below lives until its JPEG has been made).
     ESP_LOGI(TAG, "Capture by task '%s': %d frame(s), preview %d, PSRAM free %u KB", pcTaskGetName(nullptr), take, preview ? 1 : 0,
              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));

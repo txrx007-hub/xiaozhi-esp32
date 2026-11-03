@@ -60,9 +60,13 @@ public:
     const std::string& SensorName() const { return sensor_name_; }
 
 private:
+    void OnStreamStarted() override;
+    void WaitSensorSettled() override;
+    int WarmupMs() const override;
+    bool AutofocusContinuous();
     enum class AfState : uint8_t { kNone, kOff, kLoading, kOn, kFailed };
     bool LoadAutofocusFirmware();
-    bool AutofocusStart();                   // continuous focus, as esp32-camera's ov5640_af does it
+    bool AutofocusStart(bool resume);        // continuous focus, as esp32-camera's ov5640_af does it (resume: the lens is not sent home first)
     void LogAutofocusRegs(const char* where);
     bool AutofocusCommand(uint8_t command);  // handshake: ack = 1, command, wait for the ack to clear
     bool WaitAutofocusReg(uint16_t reg, uint8_t value, int timeout_ms);

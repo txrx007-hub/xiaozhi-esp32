@@ -227,6 +227,11 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "camera_detected", camera != nullptr && camera->Detected());
     cJSON_AddStringToObject(root, "camera_sensor", camera != nullptr ? camera->SensorName().c_str() : "");
     cJSON_AddStringToObject(root, "camera_af", camera != nullptr ? camera->AutofocusState() : "none");   // none (not an OV5640), off, loading, on, failed
+    // Camera stream audit: "on" or "off" (stopped while idle), how often it was started and stopped, and how long it has run in total.
+    cJSON_AddStringToObject(root, "camera_stream", camera != nullptr ? camera->StreamState() : "none");
+    cJSON_AddNumberToObject(root, "camera_stream_starts", camera != nullptr ? camera->StreamStarts() : 0);
+    cJSON_AddNumberToObject(root, "camera_stream_stops", camera != nullptr ? camera->StreamStops() : 0);
+    cJSON_AddNumberToObject(root, "camera_stream_on_s", camera != nullptr ? camera->StreamOnSeconds() : 0);
     cJSON_AddStringToObject(root, "ssid", wifi.GetSsid().c_str());
     cJSON_AddStringToObject(root, "ip", wifi.GetIpAddress().c_str());
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
@@ -336,6 +341,42 @@ esp_err_t PostDriveHandler(httpd_req_t* req) {
     }
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, nullptr, 0);
+}
+
+// Debug: read and write camera sensor registers over the LAN, for trying colour settings without a new build.
+// POST /api/camreg?r=5581:1e,5382,... : "reg:value" writes, a plain "reg" reads (all hex); the answer lists every register as read back.
+esp_err_t PostCamRegHandler(httpd_req_t* req) {
+    auto* camera = WallEBoard::Get().walle_camera();
+    char query[256] = {};
+    char list[200] = {};
+    if (camera == nullptr || httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+        httpd_query_key_value(query, "r", list, sizeof(list)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "r=reg[:value],... in hex");
+    }
+    cJSON* root = cJSON_CreateObject();
+    char* save = nullptr;
+    for (char* item = strtok_r(list, ",", &save); item != nullptr; item = strtok_r(nullptr, ",", &save)) {
+        const char* colon = strchr(item, ':');
+        const uint16_t reg = static_cast<uint16_t>(strtoul(item, nullptr, 16));
+        if (colon != nullptr) {
+            camera->WriteSensorReg(reg, static_cast<uint8_t>(strtoul(colon + 1, nullptr, 16)));
+        }
+        uint8_t value = 0;
+        char key[8];
+        char text[8] = "??";
+        snprintf(key, sizeof(key), "%04x", reg);
+        if (camera->ReadSensorReg(reg, &value)) {
+            snprintf(text, sizeof(text), "%02x", value);
+        }
+        cJSON_AddStringToObject(root, key, text);
+    }
+    char* json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const esp_err_t err = httpd_resp_sendstr(req, json != nullptr ? json : "{}");
+    cJSON_free(json);
+    return err;
 }
 
 // Reads the whole request body (settings payloads are a few dozen bytes; refuse anything odd).
@@ -787,6 +828,7 @@ void Start() {
         {.uri = "/api/photo", .method = HTTP_POST, .handler = PostPhotoHandler, .user_ctx = nullptr},
         {.uri = "/api/stop", .method = HTTP_POST, .handler = PostStopHandler, .user_ctx = nullptr},
         {.uri = "/api/net", .method = HTTP_GET, .handler = GetNetHandler, .user_ctx = nullptr},
+        {.uri = "/api/camreg", .method = HTTP_POST, .handler = PostCamRegHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

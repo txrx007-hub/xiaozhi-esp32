@@ -256,6 +256,13 @@ private:
     lv_obj_t* spectrum_bars_[walle_spectrum::kBands] = {};
     lv_obj_t* spectrum_peaks_[walle_spectrum::kBands] = {};
     bool spectrum_visible_ = false;
+    // The Winamp bars are painted by ONE object in its draw event (64 small objects with a height, a position and a colour each took about 33 ms of
+    // property changes per frame and about 1,100 redraw requests a second, in LVGL's slow memory). The rainbow strip still uses the objects above.
+    lv_obj_t* spectrum_draw_ = nullptr;
+    bool spectrum_draw_visible_ = false;
+    walle_spectrum::Frame draw_frame_{};
+    bool draw_frame_valid_ = false;
+    void DrawSpectrum(lv_layer_t* layer);
     int spectrum_height_ = 26;  // becomes 50 on first use (winamp and rainbow; grows upward, same baseline)
 
     lv_obj_t* scope_line_ = nullptr;

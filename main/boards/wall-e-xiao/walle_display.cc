@@ -487,10 +487,52 @@ void WalleDisplay::CreateRibbon() {
                    kSpectrumBarWidth, kPeakHeight, 0xffffff, 1);
     }
     lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
+
+    // The Winamp bars as one object (see DrawSpectrum): the same place and size as the strip above.
+    spectrum_draw_ = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(spectrum_draw_);
+    lv_obj_set_pos(spectrum_draw_, (width_ - kSpectrumWidth) / 2, height_ - 57 - kRibbonHeight / 2);
+    lv_obj_set_size(spectrum_draw_, kSpectrumWidth, kRibbonHeight);
+    lv_obj_remove_flag(spectrum_draw_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(spectrum_draw_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(
+        spectrum_draw_,
+        [](lv_event_t* e) { static_cast<WalleDisplay*>(lv_event_get_user_data(e))->DrawSpectrum(lv_event_get_layer(e)); },
+        LV_EVENT_DRAW_MAIN, this);
+    lv_obj_add_flag(spectrum_draw_, LV_OBJ_FLAG_HIDDEN);
     for (int i = 0; i < walle_spectrum::kBands; ++i) {   // nothing drawn yet: the first frame sets every bar
         bar_h_[i] = -1;
         peak_y_[i] = -1;
         bar_color_[i] = 0xFFFFFFFFu;
+    }
+}
+
+// Paints the Winamp bars and their peak dots (the draw event of spectrum_draw_): the same look as the objects had, one 4 px bar every 6 px,
+// green / yellow / red by how loud the band is, a white 2 px dot at the peak.
+void WalleDisplay::DrawSpectrum(lv_layer_t* layer) {
+    constexpr int kBarWidth = 4;
+    constexpr int kPitch = 6;
+    constexpr int kPeakHeight = 2;
+    if (!draw_frame_valid_ || layer == nullptr) {
+        return;
+    }
+    lv_area_t box;
+    lv_obj_get_coords(spectrum_draw_, &box);
+    const int strip_h = spectrum_height_;
+    for (int i = 0; i < walle_spectrum::kBands; ++i) {
+        const int h = std::max(2, draw_frame_.bands[i] * strip_h / 255);
+        const int x = box.x1 + i * kPitch;
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.radius = 1;
+        d.bg_color = WinampBandColor(draw_frame_.bands[i]);
+        lv_area_t bar = {x, box.y1 + strip_h - h, x + kBarWidth - 1, box.y1 + strip_h - 1};
+        lv_draw_rect(layer, &d, &bar);
+        const int peak_h = draw_frame_.peaks[i] * strip_h / 255;
+        const int peak_y = std::clamp(strip_h - peak_h - kPeakHeight, 0, strip_h - kPeakHeight);
+        d.bg_color = lv_color_hex(0xffffff);
+        lv_area_t dot = {x, box.y1 + peak_y, x + kBarWidth - 1, box.y1 + peak_y + kPeakHeight - 1};
+        lv_draw_rect(layer, &d, &dot);
     }
 }
 
@@ -511,8 +553,19 @@ void WalleDisplay::UpdateSpectrumBars() {
         const int baseline = height_ - 57 + kRibbonBaseHeight / 2;
         lv_obj_set_height(spectrum_root_, strip_h);
         lv_obj_set_y(spectrum_root_, baseline - strip_h);
+        lv_obj_set_height(spectrum_draw_, strip_h);
+        lv_obj_set_y(spectrum_draw_, baseline - strip_h);
     }
     const walle_spectrum::Frame frame = spectrum_source_();
+    if (!rainbow) {   // winamp: one object paints the bars; it is redrawn (one redraw request) only when a bar or a peak dot moved
+        if (!draw_frame_valid_ || std::memcmp(frame.bands, draw_frame_.bands, sizeof(frame.bands)) != 0 ||
+            std::memcmp(frame.peaks, draw_frame_.peaks, sizeof(frame.peaks)) != 0) {
+            draw_frame_ = frame;
+            draw_frame_valid_ = true;
+            lv_obj_invalidate(spectrum_draw_);
+        }
+        return;
+    }
     // Only what changed since the last frame is handed to LVGL: every setter marks the bar's area for redrawing, so a bar that stays put costs nothing.
     for (int i = 0; i < walle_spectrum::kBands; ++i) {
         const int h = std::max(2, frame.bands[i] * strip_h / 255);
@@ -574,6 +627,10 @@ void WalleDisplay::UpdateRibbon() {
             lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
             spectrum_visible_ = false;
         }
+        if (spectrum_draw_visible_) {
+            lv_obj_add_flag(spectrum_draw_, LV_OBJ_FLAG_HIDDEN);
+            spectrum_draw_visible_ = false;
+        }
         UpdateVisual(walle_spectrum::Mode::kOff);
         return;
     }
@@ -601,9 +658,15 @@ void WalleDisplay::UpdateRibbon() {
             bars_us_.fetch_add(static_cast<uint64_t>(esp_timer_get_time() - began));
             bars_n_.fetch_add(1);
         }
-        if (strip != spectrum_visible_) {
-            SetShown(spectrum_root_, strip);
-            spectrum_visible_ = strip;
+        const bool objects = strip && visual_mode == walle_spectrum::Mode::kRainbow;   // the rainbow strip is made of objects, the Winamp bars are painted
+        const bool painted = strip && !objects;
+        if (objects != spectrum_visible_) {
+            SetShown(spectrum_root_, objects);
+            spectrum_visible_ = objects;
+        }
+        if (painted != spectrum_draw_visible_) {
+            SetShown(spectrum_draw_, painted);
+            spectrum_draw_visible_ = painted;
         }
         UpdateVisual(visual_mode);
         return;
@@ -611,6 +674,10 @@ void WalleDisplay::UpdateRibbon() {
     if (spectrum_visible_) {
         lv_obj_add_flag(spectrum_root_, LV_OBJ_FLAG_HIDDEN);
         spectrum_visible_ = false;
+    }
+    if (spectrum_draw_visible_) {
+        lv_obj_add_flag(spectrum_draw_, LV_OBJ_FLAG_HIDDEN);
+        spectrum_draw_visible_ = false;
     }
     UpdateVisual(walle_spectrum::Mode::kOff);
 

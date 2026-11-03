@@ -331,10 +331,12 @@ WalleAudioCodec* WallEBoard::walle_codec() {
         c->SetSpectrumEnabled(mode != 0);
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
         display_->SetMusicIcon(settings.GetInt("music_icon"));
+        display_->SetMusicBars(settings.GetBool("music_visualizer"));
         display_->SetEyeColor(ParseEyeColor(settings.GetText("eye_color")));
-        // Music needs the spectrum for its Winamp bars even when the speaking visualizer is off.
+        // Music needs the spectrum for its Winamp bars even when the speaking visualizer is off, unless music_visualizer is off.
         display_->SetMusicHook([c](bool on) {
-            c->SetSpectrumEnabled(on || WalleSettings::GetInstance().GetInt("visualizer_mode") != 0);
+            auto& st = WalleSettings::GetInstance();
+            c->SetSpectrumEnabled(on ? st.GetBool("music_visualizer") : st.GetInt("visualizer_mode") != 0);
         });
         return c;
     }();
@@ -735,6 +737,12 @@ void WallEBoard::ApplySetting(const std::string& key) {
         display_->SetVisualizerMode(static_cast<walle_spectrum::Mode>(mode));
     } else if (key == "music_icon") {
         display_->SetMusicIcon(settings.GetInt("music_icon"));
+    } else if (key == "music_visualizer") {
+        const bool on = settings.GetBool("music_visualizer");
+        display_->SetMusicBars(on);
+        if (display_->MusicVisual()) {
+            walle_codec()->SetSpectrumEnabled(on);   // music is playing right now: the bars and their analysis follow the switch at once
+        }
     } else if (key == "camera_brightness") {
         if (camera_ != nullptr) {
             camera_->SetAeLevel(settings.GetInt("camera_brightness"));

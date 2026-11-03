@@ -134,6 +134,8 @@ WalleSettings::WalleSettings() {
          "what the screen shows while Jarvis speaks: off, winamp, rainbow, scope, radial, vu, mouth or orb"},
         {"music_icon", Kind::kMusicIcon, 0, kMusicIconCount - 1, 0,
          "the picture that replaces the eyes while music plays: music icon 1, 2, 3 or 4"},
+        {"music_visualizer", Kind::kBool, 0, 1, 1,
+         "the moving bars on the screen while music or radio plays; off shows only the music picture and saves processor time (the speaking screen effect has its own setting)"},
         {"log_level", Kind::kLogLevel, 0, 3, 1, "serial log detail: error, warn, info or debug"},
     };
 

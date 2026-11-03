@@ -204,7 +204,7 @@ motor_max_speed 100 · motor_trim 0 · turn_ms_per_90 600 · motor_a_invert / mo
 motor_swap 0 · soft_start_ms 200 · mic_gain_db 18 · wake_threshold 0.52 (model default 0.65 while
 speaking) · shutter_sound 1 · camera_brightness 2 · camera_saturation 0 · camera_af 1 · camera_idle_off 1 · camera_drive 0 (OV5640 only) · wake_chirp 1 · quiet_start /
 quiet_end off (night mode: no chirp, volume cap 40) · idle_clock_min 5 · weather_city off ·
-visualizer_mode off · log_level warn · talk_motion 1 · talk_power 80 (20-100) · talk_alternate 1 · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · follow_ms 1000 (100-5000) ·
+visualizer_mode off · music_visualizer 1 · log_level warn · talk_motion 1 · talk_power 80 (20-100) · talk_alternate 1 · face_power 100 (30-100) · follow_mode 0 (always off after a restart) · face_deadzone 18 (5-40) · follow_ms 1000 (100-5000) ·
 face_invert 1 (the camera picture is mirrored against the wheels on this robot).
 
 ### Turning towards a face, follow mode, talking movements (`walle_track.cc`)

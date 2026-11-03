@@ -518,7 +518,7 @@ void WalleDisplay::UpdateRibbon() {
         return;
     }
     UpdateMusicScreen(music_visual_.load() && mode == Ribbon::kOutput && !blank_ && !clock_shown_);
-    if (mode == Ribbon::kOff || blank_ || clock_shown_) {
+    if (mode == Ribbon::kOff || blank_ || clock_shown_ || (music_visual_.load() && !music_bars_.load())) {
         if (ribbon_visible_) {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
             ribbon_visible_ = false;

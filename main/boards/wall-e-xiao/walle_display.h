@@ -112,6 +112,9 @@ public:
         }
     }
     void SetMusicIcon(int icon) { music_icon_ = icon; }
+    // Setting music_visualizer: off = no bars (and no spectrum analysis) while music plays; the music picture stays.
+    void SetMusicBars(bool on) { music_bars_ = on; }
+    bool MusicVisual() const { return music_visual_.load(); }
     // While the music screen shows, the status line at the top ("Speaking") stays blank.
     void SetStatus(const char* status) override;
     // While an alarm rings and the microphone listens for "stop", the top line keeps showing the timer's text instead of Connecting / Listening.
@@ -208,6 +211,7 @@ private:
 
     std::atomic<walle_spectrum::Mode> visualizer_mode_{walle_spectrum::Mode::kOff};
     std::atomic<bool> music_visual_{false};
+    std::atomic<bool> music_bars_{true};
     std::atomic<int> music_icon_{0};
     std::function<void(bool)> music_hook_;
     lv_obj_t* music_bg_ = nullptr;

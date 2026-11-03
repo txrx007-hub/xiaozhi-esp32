@@ -154,9 +154,11 @@ Served from the app itself (`GET /`, `GET`/`POST /api/settings`,
 connects, stops on disconnect. Top speed and the shutter sound are not on the page (fixed at
 100% / on).
 
-**Remote control** (toggle button under the header): a D-pad, hold an arrow to drive at full
-speed, release to stop; ▲/▼ drive, ◀/▶ spin in place, ▲/▼ plus a side arrow arcs (inner wheel
-35%). Keyboard arrows work while the panel is open. The page re-sends
+**Remote control** (toggle button under the header): a joystick, drag the knob to steer 360° (up and
+down drive, sideways spins on the spot, in between arcs; the faster wheel runs at the knob's distance
+from the centre), let go to stop. A **Speed** slider below it (default 100%, steps of 5 down to 10%)
+scales the wheel commands; it is only the remote control's, no robot setting changes. Keyboard arrows
+work while the panel is open. The page re-sends
 `POST /api/drive?l=..&r=..` every 150 ms while held; each command drives for only 500 ms and
 replaces the previous one, so the wheels stop on their own if commands stop (WiFi drop, tab
 hidden, phone locked). `l=0&r=0` stops at once.

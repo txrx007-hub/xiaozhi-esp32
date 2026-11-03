@@ -29,6 +29,10 @@ protected:  // WALL-E: subclasses may read or replace the captured frame (PSRAM-
         v4l2_pix_fmt_t format = 0;
     } frame_;
 
+    // WALL-E: give the picture's PSRAM back (~1 MB at 800x600) once its JPEG has been made or sent: nothing reads the pixels afterwards (a vision
+    // question takes a new picture first). Width, height and format stay for LastFrameInfo(). The caller holds capture_mutex_.
+    void ReleaseFrame();
+
 private:
     v4l2_pix_fmt_t sensor_format_ = 0;
 #ifdef CONFIG_XIAOZHI_ENABLE_ROTATE_CAMERA_IMAGE

@@ -1,6 +1,8 @@
 #include "sdkconfig.h"
 
 #include <esp_heap_caps.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
@@ -566,6 +568,7 @@ bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, 
         ok = image_to_jpeg(frame_.data, frame_.len, frame_.width ? frame_.width : 320, frame_.height ? frame_.height : 240, frame_.format, quality, out, out_len);
     });
     encoder.join();
+    ReleaseFrame();  // the JPEG is all that is needed from here on
     if (!ok || *out == nullptr || *out_len == 0) {
         if (*out != nullptr) {
             heap_caps_free(*out);
@@ -577,6 +580,14 @@ bool EspVideo::CaptureJpegOnce(uint8_t quality, uint8_t** out, size_t* out_len, 
     }
     capture_error_ = "";
     return true;
+}
+
+void EspVideo::ReleaseFrame() {
+    if (frame_.data != nullptr) {
+        heap_caps_free(frame_.data);
+        frame_.data = nullptr;
+    }
+    frame_.len = 0;
 }
 
 bool EspVideo::Capture() { return CaptureImpl(3, true); }
@@ -597,6 +608,9 @@ bool EspVideo::CaptureImpl(int frames, bool preview) {
     }
 
     const int take = std::clamp(frames, 1, 3);
+    // WALL-E: which task takes pictures, and how much PSRAM is free before each (the frame copy below lives until its JPEG has been made).
+    ESP_LOGI(TAG, "Capture by task '%s': %d frame(s), preview %d, PSRAM free %u KB", pcTaskGetName(nullptr), take, preview ? 1 : 0,
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     for (int i = 0; i < take; i++) {
         struct v4l2_buffer buf = {};
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -1187,6 +1201,23 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
     // below, so 8 s is generous, not tight.
     constexpr TickType_t kJpegChunkTimeout = pdMS_TO_TICKS(8000);
     bool encoder_hung = false;
+
+    // WALL-E: the picture is only needed for this call (the vision model gets its JPEG); release it on every way out, so ~1 MB of PSRAM is free again
+    // while the robot is idle. Not when the encoder was abandoned (it may still read the pixels), and only if it is still the frame this call started with.
+    struct FrameRelease {
+        EspVideo* self;
+        uint8_t* mine;
+        const bool* hung;
+        ~FrameRelease() {
+            if (*hung || mine == nullptr) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(self->capture_mutex_);
+            if (self->frame_.data == mine) {
+                self->ReleaseFrame();
+            }
+        }
+    } frame_release{this, frame_.data, &encoder_hung};
 
     // 创建局部的 JPEG 队列, 40 entries is about to store 512 * 40 = 20480 bytes of JPEG data
     QueueHandle_t jpeg_queue = xQueueCreate(40, sizeof(JpegChunk));

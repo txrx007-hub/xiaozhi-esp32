@@ -308,7 +308,7 @@ bool WalleCamera::Capture() {
 }
 
 std::string WalleCamera::LastFrameInfo() const {
-    if (frame_.data == nullptr) {
+    if (frame_.format == 0) {  // the pixels are released after use (ReleaseFrame), the size and format stay
         return "no frame yet";
     }
     return std::to_string(frame_.width) + "x" + std::to_string(frame_.height) + " " +

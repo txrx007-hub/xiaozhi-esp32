@@ -19,6 +19,7 @@
 #include <driver/usb_serial_jtag.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <lwip/sockets.h>
 #include <esp_pm.h>
 #include <esp_system.h>
 #include <freertos/task.h>
@@ -613,6 +614,23 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     char value[8] = {};
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK && httpd_query_key_value(query, "live", value, sizeof(value)) == ESP_OK) {
         live = atoi(value) == 1;
+    }
+    {   // who asks for pictures (the app, the panel's greeter, the page): for finding what takes the camera's memory
+        sockaddr_storage peer = {};
+        socklen_t peer_len = sizeof(peer);
+        char who[24] = "?";
+        if (getpeername(httpd_req_to_sockfd(req), reinterpret_cast<sockaddr*>(&peer), &peer_len) == 0) {
+            const uint8_t* ip4 = nullptr;
+            if (peer.ss_family == AF_INET) {
+                ip4 = reinterpret_cast<const uint8_t*>(&reinterpret_cast<sockaddr_in*>(&peer)->sin_addr);
+            } else if (peer.ss_family == AF_INET6) {
+                ip4 = reinterpret_cast<sockaddr_in6*>(&peer)->sin6_addr.s6_addr + 12;   // an IPv4 address inside an IPv6 socket
+            }
+            if (ip4 != nullptr) {
+                snprintf(who, sizeof(who), "%u.%u.%u.%u", ip4[0], ip4[1], ip4[2], ip4[3]);
+            }
+        }
+        ESP_LOGI(TAG, "/api/photo live=%d asked by %s", live ? 1 : 0, who);
     }
     bool expected = false;
     if (!s_photo_busy.compare_exchange_strong(expected, true)) {

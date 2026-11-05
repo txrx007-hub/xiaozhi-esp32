@@ -344,6 +344,14 @@ esp_err_t PostDriveHandler(httpd_req_t* req) {
     left = std::clamp(left, -100, 100);
     right = std::clamp(right, -100, 100);
     auto& board = WallEBoard::Get();
+    // The Wi-Fi radio sleeps while the robot is idle and wakes about once a second: held open here so the next commands arrive at once
+    // (without it a command could wait up to a second, and the wheels, which run 500 ms per command, stopped and started again).
+    board.KeepRadioAwake();
+    char flag[4] = {};
+    if (httpd_query_key_value(query, "awake", flag, sizeof(flag)) == ESP_OK) {   // /api/drive?awake=1: only keeps the radio awake, no motor command
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        return httpd_resp_send(req, nullptr, 0);
+    }
     if (left == 0 && right == 0) {
         board.motors().Stop();
     } else {

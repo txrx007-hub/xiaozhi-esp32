@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <expected>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,10 @@ public:
     Led* GetLed() override { return &state_hook_; }
     bool OnWakeWordDetected(const std::string& wake_word) override;
     void SetPowerSaveLevel(PowerSaveLevel level) override;
+    // The Wi-Fi radio sleeps most of the time while the robot is idle (LOW_POWER = MAX_MODEM, wakes about once a second), so a command from the
+    // remote control could wait up to a second and the wheels stopped (they only run 500 ms per command). Every drive call, and the page's
+    // /api/drive?awake=1 while the remote panel is open, keeps the radio fully awake for `ms`; after that the level the app asked for is applied again.
+    void KeepRadioAwake(int ms = 8000);
     void SetNetworkEventCallback(NetworkEventCallback callback) override;
 
     // Wall-E parts
@@ -107,6 +112,10 @@ private:
     esp_timer_handle_t tick_timer_ = nullptr;
     esp_timer_handle_t listen_poll_timer_ = nullptr;
     esp_timer_handle_t camera_probe_timer_ = nullptr;
+    esp_timer_handle_t radio_awake_timer_ = nullptr;    // ends KeepRadioAwake()
+    std::mutex radio_mutex_;
+    bool radio_forced_ = false;                          // the radio is held awake by KeepRadioAwake()
+    PowerSaveLevel wanted_power_level_ = PowerSaveLevel::LOW_POWER;   // what the application last asked for
     bool screensaver_requested_ = false;
     bool screensaver_spoke_ = false;
     int64_t screensaver_deadline_us_ = 0;

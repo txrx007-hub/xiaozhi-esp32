@@ -144,6 +144,21 @@ WallEBoard::WallEBoard() : boot_button_(BOOT_BUTTON_GPIO) {
     ESP_ERROR_CHECK(esp_timer_create(&probe, &camera_probe_timer_));
     ESP_ERROR_CHECK(esp_timer_start_once(camera_probe_timer_, 6 * 1000 * 1000));
 
+    esp_timer_create_args_t awake = {};
+    awake.callback = [](void* arg) {
+        auto* self = static_cast<WallEBoard*>(arg);
+        std::lock_guard<std::mutex> lock(self->radio_mutex_);
+        if (esp_timer_is_active(self->radio_awake_timer_)) {
+            return;   // KeepRadioAwake() ran again in the meantime
+        }
+        self->radio_forced_ = false;
+        ESP_LOGI(TAG, "Remote control idle: Wi-Fi power save back to the application's level");
+        self->WifiBoard::SetPowerSaveLevel(self->wanted_power_level_);
+    };
+    awake.arg = this;
+    awake.name = "radio_awake";
+    ESP_ERROR_CHECK(esp_timer_create(&awake, &radio_awake_timer_));
+
     walle_console::Start();
     ESP_LOGI(TAG, "Jarvis board ready (wake word: %s)", WAKE_WORD_NAME);
 }
@@ -383,7 +398,26 @@ void WallEBoard::SetPowerSaveLevel(PowerSaveLevel level) {
         }
         ExitNap();
     }
+    std::lock_guard<std::mutex> lock(radio_mutex_);
+    wanted_power_level_ = level;
+    if (level == PowerSaveLevel::LOW_POWER && radio_forced_) {
+        return;   // the remote control is in use: the radio stays awake until KeepRadioAwake() runs out, then this level is applied
+    }
     WifiBoard::SetPowerSaveLevel(level);
+}
+
+void WallEBoard::KeepRadioAwake(int ms) {
+    if (radio_awake_timer_ == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(radio_mutex_);
+    esp_timer_stop(radio_awake_timer_);   // restart the countdown (an error when it is not running: fine)
+    if (!radio_forced_) {
+        radio_forced_ = true;
+        ESP_LOGI(TAG, "Remote control active: Wi-Fi power save off");
+        WifiBoard::SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
+    }
+    esp_timer_start_once(radio_awake_timer_, static_cast<int64_t>(ms) * 1000);
 }
 
 void WallEBoard::SetNetworkEventCallback(NetworkEventCallback callback) {

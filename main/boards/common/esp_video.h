@@ -71,6 +71,11 @@ private:
     uint64_t stream_on_total_us_ = 0;           // time the stream was on before the current run
     std::atomic<uint32_t> stream_starts_{0};
     std::atomic<uint32_t> stream_stops_{0};
+    // WALL-E: cumulative since boot, for the live stats window (the PC turns the differences into "per second"): frames taken out of the camera's queue,
+    // pictures that became a JPEG, pictures that failed (both tries).
+    std::atomic<uint32_t> frames_taken_{0};
+    std::atomic<uint32_t> jpegs_made_{0};
+    std::atomic<uint32_t> jpegs_failed_{0};
     uint32_t last_warmup_frames_ = 0;
     void* idle_timer_ = nullptr;                // esp_timer_handle_t
     bool StreamStartLocked();                   // true when the stream runs and delivered a frame
@@ -118,6 +123,9 @@ public:
     uint32_t StreamStarts() const { return stream_starts_; }
     uint32_t StreamStops() const { return stream_stops_; }
     uint32_t StreamOnSeconds() const;
+    uint32_t FramesTaken() const { return frames_taken_; }
+    uint32_t JpegsMade() const { return jpegs_made_; }
+    uint32_t JpegsFailed() const { return jpegs_failed_; }
     // WALL-E: a video device was opened, i.e. esp_video found and initialized a camera sensor.
     bool CameraPresent() const { return video_fd_ >= 0; }
     // WALL-E: the sensor model as the sensor itself reports it (chip ID read over SCCB): "OV3660",

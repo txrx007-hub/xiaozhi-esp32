@@ -232,6 +232,14 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "camera_stream_starts", camera != nullptr ? camera->StreamStarts() : 0);
     cJSON_AddNumberToObject(root, "camera_stream_stops", camera != nullptr ? camera->StreamStops() : 0);
     cJSON_AddNumberToObject(root, "camera_stream_on_s", camera != nullptr ? camera->StreamOnSeconds() : 0);
+    // Camera work since boot (cumulative; the live stats window turns the differences into "per second"): frames taken out of the camera's queue
+    // (pictures for the vision model count here too), pictures that became a JPEG (web, app, looks; not the vision photos), pictures that failed,
+    // and the follow/face looks that the server answered, with the ones that had a face in them. Revision 108 and newer.
+    cJSON_AddNumberToObject(root, "camera_frames", camera != nullptr ? camera->FramesTaken() : 0);
+    cJSON_AddNumberToObject(root, "camera_jpegs", camera != nullptr ? camera->JpegsMade() : 0);
+    cJSON_AddNumberToObject(root, "camera_jpeg_failed", camera != nullptr ? camera->JpegsFailed() : 0);
+    cJSON_AddNumberToObject(root, "follow_looks", walle_track::Looks());
+    cJSON_AddNumberToObject(root, "follow_looks_found", walle_track::LooksFound());
     cJSON_AddStringToObject(root, "ssid", wifi.GetSsid().c_str());
     cJSON_AddStringToObject(root, "ip", wifi.GetIpAddress().c_str());
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());

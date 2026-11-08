@@ -718,6 +718,7 @@ bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, int 
             vTaskDelay(pdMS_TO_TICKS(300));
         }
         if (CaptureJpegOnce(quality, out, out_len, frames, preview)) {
+            ++jpegs_made_;
             return true;
         }
         ESP_LOGW(TAG, "CaptureJpeg attempt %d failed: %s (PSRAM free %u KB, largest block %u KB, internal largest %u KB)", attempt, capture_error_,
@@ -725,6 +726,7 @@ bool EspVideo::CaptureJpeg(uint8_t quality, uint8_t** out, size_t* out_len, int 
                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM) / 1024),
                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024));
     }
+    ++jpegs_failed_;
     return false;
 }
 
@@ -817,6 +819,7 @@ bool EspVideo::CaptureImpl(int frames, bool preview) {
             ESP_LOGE(TAG, "VIDIOC_DQBUF failed");
             return false;
         }
+        ++frames_taken_;
         if (i == take - 1) {
             // 保存帧副本到PSRAM
             if (frame_.data) {

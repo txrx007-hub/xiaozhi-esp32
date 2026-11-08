@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <expected>
 #include <string>
 
@@ -40,6 +41,10 @@ void FaceMeThenCall(const std::string& text);
 
 // True while a look or a correction is under way; the talking movements wait for it.
 bool Busy();
+
+// Cumulative since boot, for /api/status and the live stats window: looks that got an answer from the server, and how many of those had a face in them.
+uint32_t Looks();
+uint32_t LooksFound();
 
 // Called every 100 ms by its own timer. Does a talking movement now and then while sound is coming out of the speaker.
 void TalkTick();

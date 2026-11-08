@@ -51,6 +51,8 @@ std::mutex g_mutex;                  // one look-and-turn sequence at a time (on
 std::atomic<bool> g_busy{false};
 std::atomic<bool> g_oneshot{false};
 std::atomic<bool> g_faced{false};    // the last FaceMe ended facing a face
+std::atomic<uint32_t> g_looks{0};        // looks answered by the server since boot (live stats window)
+std::atomic<uint32_t> g_looks_found{0};  // ... and those with a face in them
 std::mutex g_call_mutex;
 std::string g_call_text;             // FaceMeThenCall: what to say once facing the face (empty: nothing)
 TaskHandle_t g_task = nullptr;
@@ -213,6 +215,8 @@ void GazeAt(const Face* face) {
 }  // namespace
 
 bool Busy() { return g_busy.load(); }
+uint32_t Looks() { return g_looks.load(); }
+uint32_t LooksFound() { return g_looks_found.load(); }
 
 std::expected<Face, std::string> Look() {
     auto& board = WallEBoard::Get();
@@ -288,6 +292,10 @@ std::expected<Face, std::string> Look() {
     face.width = NumberOr(root, "w", 0);
     face.count = static_cast<int>(NumberOr(root, "n", face.found ? 1 : 0));
     cJSON_Delete(root);
+    ++g_looks;
+    if (face.found) {
+        ++g_looks_found;
+    }
     return face;
 }
 

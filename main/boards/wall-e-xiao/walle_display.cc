@@ -1226,13 +1226,14 @@ void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {
 
 namespace {
 // Chat style scrolls by moving the bottom bar's scroll position. The bar shows exactly one wrapped line at a time (the line spacing is set so one line
-// is as high as the bar), so the text moves line by line: each line rests for most of its time, then glides to the next one.
+// is as high as the bar), so the text moves line by line: each line rests only briefly (kChatHold of its time), then glides to the next one.
 void ChatScrollExec(void* obj, int32_t v) {
     auto* bar = static_cast<lv_obj_t*>(obj);
     const int32_t pitch = std::max<int32_t>(1, lv_obj_get_height(bar));
     const int32_t line = v / pitch;
     const float frac = static_cast<float>(v - line * pitch) / static_cast<float>(pitch);
-    const float glide = frac < 0.75f ? 0.0f : (frac - 0.75f) / 0.25f;   // the last quarter of each line's time
+    constexpr float kChatHold = 0.40f;   // a line rests for 40 % of its time, the glide to the next one takes the other 60 %
+    const float glide = frac < kChatHold ? 0.0f : (frac - kChatHold) / (1.0f - kChatHold);
     const float smooth = glide * glide * (3.0f - 2.0f * glide);
     lv_obj_scroll_to_y(bar, static_cast<int32_t>((static_cast<float>(line) + smooth) * static_cast<float>(pitch)), LV_ANIM_OFF);
 }
@@ -1321,14 +1322,14 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
     const int32_t y0 = lv_obj_get_scroll_y(bottom_bar_);
     if (target > y0) {
         const int32_t steps = (target - y0 + pitch - 1) / pitch;   // lines still to roll through
-        const int64_t reading_ms = 70LL * static_cast<int64_t>(strlen(sentence));   // speaking pace
+        const int64_t reading_ms = 36LL * static_cast<int64_t>(strlen(sentence));   // a little faster than the speaking pace (the voice needs about 70 ms a character)
         lv_anim_t a;
         lv_anim_init(&a);
         lv_anim_set_var(&a, bottom_bar_);
         lv_anim_set_exec_cb(&a, ChatScrollExec);
         lv_anim_set_values(&a, y0, target);
-        lv_anim_set_duration(&a, static_cast<uint32_t>(std::clamp<int64_t>(std::max<int64_t>(reading_ms, 900LL * steps), 900, 14000)));
-        lv_anim_set_delay(&a, 300);
+        lv_anim_set_duration(&a, static_cast<uint32_t>(std::clamp<int64_t>(std::max<int64_t>(reading_ms, 550LL * steps), 550, 12000)));
+        lv_anim_set_delay(&a, 120);
         lv_anim_set_path_cb(&a, lv_anim_path_linear);
         lv_anim_start(&a);
     }

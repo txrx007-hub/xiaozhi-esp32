@@ -1183,7 +1183,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
     }
     if (image->IsGif()) {
         // Create new GIF controller
-        gif_controller_ = std::make_unique<LvglGif>(image->image_dsc(), true);   // local patch (rev 112): black = see-through, so the eye colour setting tints only the eyes
+        gif_controller_ = std::make_unique<LvglGif>(image->image_dsc());
 
         if (gif_controller_->IsLoaded()) {
             // Set up frame update callback

@@ -12,8 +12,7 @@
  */
 class LvglGif {
 public:
-    // black_is_transparent: pure black pixels are see-through (used for the eye faces, so a flat recolor tints only the eyes)
-    explicit LvglGif(const lv_img_dsc_t* img_dsc, bool black_is_transparent = false);
+    explicit LvglGif(const lv_img_dsc_t* img_dsc);
     virtual ~LvglGif();
 
     // LvglImage interface implementation

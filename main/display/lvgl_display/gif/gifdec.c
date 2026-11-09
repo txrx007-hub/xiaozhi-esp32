@@ -139,7 +139,6 @@ static gd_GIF * gif_open(gd_GIF * gif_base)
     f_gif_read(gif, gif->gct.colors, 3 * gif->gct.size);
     gif->palette = &gif->gct;
     gif->bgindex = bgidx;
-    gif->black_key = 0;   /* local patch (rev 112): set by the caller (LvglGif) before the first frame is drawn */
     gif->canvas = (uint8_t *) &gif[1];
     gif->frame = &gif->canvas[4 * width * height];
     if(gif->bgindex) {
@@ -674,8 +673,7 @@ render_frame_rect(gd_GIF * gif, uint8_t * buffer)
         for(k = 0; k < gif->fw; k++) {
             index = gif->frame[(gif->fy + j) * gif->width + gif->fx + k];
             color = &gif->palette->colors[index * 3];
-            if((!gif->gce.transparency || index != gif->gce.tindex) &&
-               !(gif->black_key && color[0] == 0 && color[1] == 0 && color[2] == 0)) {   /* local patch (rev 112): black is see-through */
+            if(!gif->gce.transparency || index != gif->gce.tindex) {
                 buffer[(i + k) * 4 + 0] = *(color + 2);
                 buffer[(i + k) * 4 + 1] = *(color + 1);
                 buffer[(i + k) * 4 + 2] = *(color + 0);
@@ -697,7 +695,7 @@ dispose(gd_GIF * gif)
             bgcolor = &gif->palette->colors[gif->bgindex * 3];
 
             uint8_t opa = 0xff;
-            if(gif->gce.transparency || gif->black_key) opa = 0x00;   /* local patch (rev 112): with the black key a restored frame is see-through, not an opaque black box */
+            if(gif->gce.transparency) opa = 0x00;
 
             i = gif->fy * gif->width + gif->fx;
 #ifdef GIFDEC_FILL_BG

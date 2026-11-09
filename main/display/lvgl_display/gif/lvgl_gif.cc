@@ -4,7 +4,7 @@
 
 #define TAG "LvglGif"
 
-LvglGif::LvglGif(const lv_img_dsc_t* img_dsc, bool black_is_transparent)
+LvglGif::LvglGif(const lv_img_dsc_t* img_dsc)
     : gif_(nullptr), timer_(nullptr), last_call_(0), playing_(false), loaded_(false),
       loop_delay_ms_(0), loop_waiting_(false), loop_wait_start_(0) {
     if (!img_dsc || !img_dsc->data) {
@@ -17,8 +17,6 @@ LvglGif::LvglGif(const lv_img_dsc_t* img_dsc, bool black_is_transparent)
         ESP_LOGE(TAG, "Failed to open GIF from image descriptor");
         return;
     }
-
-    gif_->black_key = black_is_transparent ? 1 : 0;   // before the first frame is drawn
 
     // Setup LVGL image descriptor
     memset(&img_dsc_, 0, sizeof(img_dsc_));

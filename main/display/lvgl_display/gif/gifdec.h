@@ -45,6 +45,7 @@ typedef struct _gd_GIF {
     void (*application)(struct _gd_GIF * gif, char id[8], char auth[3]);
     uint16_t fx, fy, fw, fh;
     uint8_t bgindex;
+    uint8_t black_key;   /* local patch (rev 112): 1 = pure black pixels are transparent. The eye GIFs use it, so image_recolor tints only the eyes, not their black background */
     uint8_t * canvas, * frame;
 #if LV_GIF_CACHE_DECODE_DATA
     uint8_t *lzw_cache;

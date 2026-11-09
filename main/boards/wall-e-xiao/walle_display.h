@@ -30,8 +30,8 @@ public:
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
     // next one arrives.
     void SetChatMessage(const char* role, const char* content) override;
-    // Setting subtitle_style: 0 = the stock single line that scrolls from right to left, 1 = chat style: a small panel of wrapped lines
-    // that fills up as the sentences are spoken and scrolls from top to bottom when the answer is longer than the panel.
+    // Setting subtitle_style: 0 = the stock single line that scrolls from right to left, 1 = chat style: in the SAME one-line band (same bar, same height)
+    // the words wrap and roll through it from top to bottom, one line at a time, as the sentences of the answer are spoken.
     void SetSubtitleStyle(int style);
     // A single take_photo/diagnostics capture shows the real picture, fit into the screen and
     // centred, for 3.5 s (upstream default: 5 s). look_around's

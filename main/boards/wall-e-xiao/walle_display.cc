@@ -271,7 +271,7 @@ WalleDisplay::WalleDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_han
         // SetChatMessage touches LVGL; run the actual clear on the main task.
         Application::GetInstance().Schedule([self, generation]() {
             if (generation == self->subtitle_generation_) {
-                self->SpiLcdDisplay::SetChatMessage("assistant", "");
+                self->ClearSubtitle();
             }
         });
     };
@@ -326,6 +326,7 @@ void WalleDisplay::SetupUI() {
     CreateWifiBars(network_label_, wifi_bars_);   // over the stock font icon, which stays in place as an invisible spacer
     PlaceWifiCorner();
     CreateClock();
+    ApplySubtitleStyle();   // the saved spoken-text style, now that the bottom bar and its label exist
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
     CreateMuteIcon();
     lv_timer_create(
@@ -1223,13 +1224,126 @@ void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {
     esp_timer_start_once(hold_timer_, static_cast<uint64_t>(hold_ms) * 1000);
 }
 
+namespace {
+// The chat panel scrolls by moving the bottom bar's scroll position; one function so the animation can be found and stopped.
+void ChatScrollExec(void* obj, int32_t y) { lv_obj_scroll_to_y(static_cast<lv_obj_t*>(obj), y, LV_ANIM_OFF); }
+constexpr int kChatLines = 3;   // how many lines the chat panel shows at once
+}  // namespace
+
+void WalleDisplay::SetSubtitleStyle(int style) {
+    subtitle_style_ = (style == 1) ? 1 : 0;
+    ApplySubtitleStyle();
+}
+
+void WalleDisplay::ApplySubtitleStyle() {
+    DisplayLockGuard lock(this);
+    if (bottom_bar_ == nullptr || chat_message_label_ == nullptr) {
+        return;   // SetupUI applies the style once the bar exists
+    }
+    if (subtitle_bar_h_ == 0) {   // remember how the stock single-line bar is dressed
+        subtitle_bar_h_ = lv_obj_get_height(bottom_bar_);
+        subtitle_bar_opa_ = lv_obj_get_style_bg_opa(bottom_bar_, LV_PART_MAIN);
+        subtitle_scroll_dir_ = lv_obj_get_scroll_dir(bottom_bar_);
+    }
+    lv_anim_delete(bottom_bar_, ChatScrollExec);
+    lv_anim_delete(chat_message_label_, nullptr);
+    chat_text_.clear();
+    if (subtitle_style_.load() == 1) {
+        const lv_font_t* font = lv_obj_get_style_text_font(chat_message_label_, LV_PART_MAIN);
+        const int line_h = font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16;
+        lv_obj_set_height(bottom_bar_, kChatLines * line_h + 10);
+        lv_obj_set_style_bg_opa(bottom_bar_, LV_OPA_80, LV_PART_MAIN);
+        lv_obj_set_style_pad_top(bottom_bar_, 4, 0);
+        lv_obj_set_style_pad_bottom(bottom_bar_, 4, 0);
+        lv_obj_set_scroll_dir(bottom_bar_, LV_DIR_VER);
+        lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(chat_message_label_, LV_ALIGN_TOP_LEFT, 0, 0);
+    } else {
+        lv_obj_set_height(bottom_bar_, subtitle_bar_h_);
+        lv_obj_set_style_bg_opa(bottom_bar_, subtitle_bar_opa_, LV_PART_MAIN);
+        lv_obj_set_style_pad_top(bottom_bar_, 0, 0);
+        lv_obj_set_style_pad_bottom(bottom_bar_, 0, 0);
+        lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
+        lv_obj_set_scroll_dir(bottom_bar_, subtitle_scroll_dir_);
+        lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(chat_message_label_, LV_ALIGN_CENTER, 0, 0);
+    }
+    lv_label_set_text(chat_message_label_, "");
+    lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);   // shown again by the next sentence
+}
+
+// Chat style: the sentences of one answer pile up in the panel (a pause of 12 s starts a new answer at the top), and the panel scrolls
+// down to the newest sentence at speaking pace. A short answer simply stands there; a long one reads from top to bottom.
+void WalleDisplay::ShowChatSentence(const char* sentence) {
+    DisplayLockGuard lock(this);
+    const int64_t now = esp_timer_get_time();
+    if (now - chat_last_us_ > 12LL * 1000000) {
+        chat_text_.clear();
+        if (bottom_bar_ != nullptr) {
+            lv_anim_delete(bottom_bar_, ChatScrollExec);
+            lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
+        }
+    }
+    chat_last_us_ = now;
+    if (!chat_text_.empty()) {
+        chat_text_ += ' ';
+    }
+    chat_text_ += sentence;
+    constexpr size_t kKeep = 420;   // the newest ~420 bytes; older sentences fall off the top
+    if (chat_text_.size() > kKeep) {
+        const size_t cut = chat_text_.find(' ', chat_text_.size() - kKeep);
+        chat_text_.erase(0, cut == std::string::npos ? chat_text_.size() - kKeep : cut + 1);
+    }
+    SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());   // sets the text and shows the bar
+    if (bottom_bar_ == nullptr) {
+        return;
+    }
+    lv_anim_delete(bottom_bar_, ChatScrollExec);
+    lv_obj_update_layout(bottom_bar_);
+    const int32_t below = lv_obj_get_scroll_bottom(bottom_bar_);   // pixels of text still hidden under the panel
+    if (below > 0) {
+        const int32_t y0 = lv_obj_get_scroll_y(bottom_bar_);
+        lv_anim_t a;
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, bottom_bar_);
+        lv_anim_set_exec_cb(&a, ChatScrollExec);
+        lv_anim_set_values(&a, y0, y0 + below);
+        lv_anim_set_duration(&a, static_cast<uint32_t>(std::clamp<int64_t>(70LL * static_cast<int64_t>(strlen(sentence)), 900, 8000)));
+        lv_anim_set_delay(&a, 300);
+        lv_anim_set_path_cb(&a, lv_anim_path_linear);
+        lv_anim_start(&a);
+    }
+}
+
+void WalleDisplay::ClearSubtitle() {
+    {
+        DisplayLockGuard lock(this);
+        chat_text_.clear();
+        if (bottom_bar_ != nullptr) {
+            lv_anim_delete(bottom_bar_, ChatScrollExec);
+            lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
+        }
+    }
+    SpiLcdDisplay::SetChatMessage("assistant", "");
+}
+
 void WalleDisplay::SetChatMessage(const char* role, const char* content) {
     // Only Jarvis's words show under the face; the user's transcript is not shown.
     if (role != nullptr && strcmp(role, "user") == 0) {
         SpiLcdDisplay::SetChatMessage(role, "");
         return;
     }
-    SpiLcdDisplay::SetChatMessage(role, content);
+    const bool assistant = role != nullptr && strcmp(role, "assistant") == 0;
+    if (assistant && subtitle_style_.load() == 1 && content != nullptr && content[0] != '\0') {
+        ShowChatSentence(content);   // chat style: the sentence joins the answer in the panel
+    } else {
+        if (assistant) {
+            chat_text_.clear();
+        }
+        SpiLcdDisplay::SetChatMessage(role, content);
+    }
 
     // WALL-E: each sentence clears itself a little after it would have been read, instead of
     // sitting there (scrolling, if it doesn't fit) until the next one arrives or forever after
@@ -1240,7 +1354,10 @@ void WalleDisplay::SetChatMessage(const char* role, const char* content) {
                              ? strlen(content)
                              : 0;
     if (length > 0) {
-        const int64_t duration_ms = std::clamp<int64_t>(70LL * static_cast<int64_t>(length), 2500, 9000);
+        int64_t duration_ms = std::clamp<int64_t>(70LL * static_cast<int64_t>(length), 2500, 9000);
+        if (subtitle_style_.load() == 1) {
+            duration_ms += 1500;   // chat style: a moment longer, the panel is still scrolling to the last line
+        }
         esp_timer_start_once(subtitle_clear_timer_, duration_ms * 1000);
     }
 }

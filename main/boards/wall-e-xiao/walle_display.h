@@ -30,6 +30,9 @@ public:
     // few seconds after being shown, instead of sitting there scrolling indefinitely until the
     // next one arrives.
     void SetChatMessage(const char* role, const char* content) override;
+    // Setting subtitle_style: 0 = the stock single line that scrolls from right to left, 1 = chat style: a small panel of wrapped lines
+    // that fills up as the sentences are spoken and scrolls from top to bottom when the answer is longer than the panel.
+    void SetSubtitleStyle(int style);
     // A single take_photo/diagnostics capture shows the real picture, fit into the screen and
     // centred, for 3.5 s (upstream default: 5 s). look_around's
     // per-frame shots stay suppressed via SuppressNextPreview(), unaffected by this.
@@ -198,6 +201,15 @@ private:
     // WALL-E: clears the subtitle a few seconds after each sentence, rather than leaving it
     // scrolling on screen until the next one supersedes it (or forever, after the last one).
     int64_t subtitle_generation_ = 0;
+    std::atomic<int> subtitle_style_{0};
+    std::string chat_text_;                // the sentences of the answer shown so far (chat style)
+    int64_t chat_last_us_ = 0;
+    int32_t subtitle_bar_h_ = 0;           // the stock single-line bar, remembered the first time the style is applied
+    lv_opa_t subtitle_bar_opa_ = LV_OPA_COVER;
+    lv_dir_t subtitle_scroll_dir_ = LV_DIR_ALL;
+    void ApplySubtitleStyle();             // re-dresses the bottom bar and label for the current style (needs the UI)
+    void ShowChatSentence(const char* sentence);
+    void ClearSubtitle();
     esp_timer_handle_t subtitle_clear_timer_ = nullptr;
     std::atomic<bool> suppress_preview_{false};
     bool blank_ = false;

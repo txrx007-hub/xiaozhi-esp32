@@ -23,6 +23,9 @@ constexpr int kVisualizerModeCount = walle_spectrum::kModeCount;
 // The picture that replaces the eyes while music plays.
 constexpr const char* kMusicIcons[] = {"music icon 1", "music icon 2", "music icon 3", "music icon 4"};
 constexpr int kMusicIconCount = 4;
+// How Jarvis's spoken words show under the face: one line scrolling right to left, or chat-style lines scrolling top to bottom.
+constexpr const char* kSubtitleStyles[] = {"line", "chat"};
+constexpr int kSubtitleStyleCount = 2;
 
 std::string Trim(const std::string& text) {
     size_t start = 0;
@@ -131,6 +134,8 @@ WalleSettings::WalleSettings() {
         {"quiet_end", Kind::kTimeOfDay, -1, 1439, -1, "night mode end, HH:MM or off"},
         {"idle_clock_min", Kind::kInt, 0, 120, 5, "show the big clock after this many idle minutes (0 = off)"},
         {"weather_city", Kind::kText, 0, 40, 0, "city for the weather, for example Amsterdam, or off"},
+        {"subtitle_style", Kind::kSubtitleStyle, 0, kSubtitleStyleCount - 1, 0,
+         "how Jarvis's words show under the face: line = one line scrolling from right to left, chat = lines of text that scroll from top to bottom as they are spoken"},
         {"visualizer_mode", Kind::kVisualizerMode, 0, kVisualizerModeCount - 1, 0,
          "what the screen shows while Jarvis speaks: off, winamp, rainbow, scope, radial, vu, mouth or orb"},
         {"music_icon", Kind::kMusicIcon, 0, kMusicIconCount - 1, 0,
@@ -221,6 +226,8 @@ std::string WalleSettings::Format(const Def& def, int value) const {
                                                      : value)];
         case Kind::kMusicIcon:
             return kMusicIcons[value < 0 ? 0 : (value >= kMusicIconCount ? kMusicIconCount - 1 : value)];
+        case Kind::kSubtitleStyle:
+            return kSubtitleStyles[value < 0 ? 0 : (value >= kSubtitleStyleCount ? kSubtitleStyleCount - 1 : value)];
         case Kind::kBool:
             return value ? "1" : "0";
         default:
@@ -248,6 +255,8 @@ std::string WalleSettings::Range(const Def& def) const {
             return "off, winamp, scope, radial, vu, mouth, orb, rainbow";
         case Kind::kMusicIcon:
             return "music icon 1, music icon 2, music icon 3, music icon 4";
+        case Kind::kSubtitleStyle:
+            return "line, chat";
         case Kind::kBool:
             return "0 or 1";
         case Kind::kText:
@@ -353,6 +362,14 @@ std::expected<int, std::string> WalleSettings::Parse(const Def& def,
                 }
             }
             return std::unexpected("music_icon must be music icon 1, 2, 3 or 4.");
+
+        case Kind::kSubtitleStyle:
+            for (int i = 0; i < kSubtitleStyleCount; ++i) {
+                if (text == kSubtitleStyles[i] || text == std::to_string(i)) {
+                    return i;
+                }
+            }
+            return std::unexpected("subtitle_style must be line or chat.");
 
         default:
             if (!ParseInt(text, value)) {

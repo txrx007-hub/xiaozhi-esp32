@@ -61,6 +61,7 @@ const char* KindName(WalleSettings::Kind kind) {
         case WalleSettings::Kind::kLogLevel: return "enum";
         case WalleSettings::Kind::kVisualizerMode: return "enum";
         case WalleSettings::Kind::kMusicIcon: return "enum";
+        case WalleSettings::Kind::kSubtitleStyle: return "enum";
         case WalleSettings::Kind::kText: return "text";
     }
     return "int";
@@ -129,6 +130,14 @@ cJSON* SettingToJson(const WalleSettings::Def& def) {
             cJSON* options = cJSON_AddArrayToObject(item, "options");
             for (const char* icon : {"music icon 1", "music icon 2", "music icon 3", "music icon 4"}) {
                 cJSON_AddItemToArray(options, cJSON_CreateString(icon));
+            }
+            break;
+        }
+        case WalleSettings::Kind::kSubtitleStyle: {
+            cJSON_AddStringToObject(item, "value", settings.FormatCurrent(def).c_str());
+            cJSON* options = cJSON_AddArrayToObject(item, "options");
+            for (const char* style : {"line", "chat"}) {
+                cJSON_AddItemToArray(options, cJSON_CreateString(style));
             }
             break;
         }
@@ -270,6 +279,8 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddNumberToObject(root, "state",
                             static_cast<int>(Application::GetInstance().GetDeviceState()));
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
+    // true only while the audio is music, a radio station or a podcast (the server marked that turn); false while Jarvis speaks. The status line of the page and the app says "Music mode" from it (firmware 109 and newer).
+    cJSON_AddBoolToObject(root, "music", board.walle_display() != nullptr && board.walle_display()->MusicPlaying());
     cJSON_AddBoolToObject(root, "follow", WalleSettings::GetInstance().GetBool("follow_mode"));   // follow mode: the toggle of the page and the app
     cJSON_AddBoolToObject(root, "eyes", WalleSettings::GetInstance().GetBool("eyes_follow"));     // eyes follow: its own toggle next to it (firmware build 94 and newer)
     cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());

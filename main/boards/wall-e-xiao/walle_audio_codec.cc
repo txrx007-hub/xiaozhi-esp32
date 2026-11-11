@@ -68,9 +68,46 @@ void WalleAudioCodec::SetMicGainDb(int db) {
     ESP_LOGI(TAG, "Mic gain %d dB", db);
 }
 
+void WalleAudioCodec::SetMicHighPassHz(int hz) {
+    hz = std::clamp(hz, 0, 400);
+    if (hz == 0) {
+        hpf_hz_ = 0;   // Read() skips the filter at 0
+        ESP_LOGI(TAG, "Mic high-pass filter off");
+        return;
+    }
+    // RBJ biquad, Butterworth (Q = 1/sqrt(2)).
+    const double fs = input_sample_rate();
+    const double w0 = 2.0 * M_PI * hz / fs;
+    const double alpha = std::sin(w0) / (2.0 * 0.70710678);
+    const double c = std::cos(w0);
+    const double a0 = 1.0 + alpha;
+    hpf_b0_ = static_cast<float>((1.0 + c) / 2.0 / a0);
+    hpf_b1_ = static_cast<float>(-(1.0 + c) / a0);
+    hpf_b2_ = static_cast<float>((1.0 + c) / 2.0 / a0);
+    hpf_a1_ = static_cast<float>(-2.0 * c / a0);
+    hpf_a2_ = static_cast<float>((1.0 - alpha) / a0);
+    hpf_reset_ = true;
+    hpf_hz_ = hz;
+    ESP_LOGI(TAG, "Mic high-pass filter %d Hz", hz);
+}
+
 int WalleAudioCodec::Read(int16_t* dest, int samples) {
     // input_gain_ stays 0, so the base class copies the PDM samples unchanged.
     int n = NoAudioCodecSimplexPdm::Read(dest, samples);
+    if (hpf_hz_.load() > 0 && n > 0) {
+        if (hpf_reset_.exchange(false)) {
+            hpf_x1_ = hpf_x2_ = hpf_y1_ = hpf_y2_ = 0;
+        }
+        const float b0 = hpf_b0_, b1 = hpf_b1_, b2 = hpf_b2_, a1 = hpf_a1_, a2 = hpf_a2_;
+        float x1 = hpf_x1_, x2 = hpf_x2_, y1 = hpf_y1_, y2 = hpf_y2_;
+        for (int i = 0; i < n; ++i) {
+            const float x = static_cast<float>(dest[i]);
+            const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+            x2 = x1; x1 = x; y2 = y1; y1 = y;
+            dest[i] = static_cast<int16_t>(std::clamp(y, -32768.0f, 32767.0f));
+        }
+        hpf_x1_ = x1; hpf_x2_ = x2; hpf_y1_ = y1; hpf_y2_ = y2;
+    }
     const int32_t q8 = gain_q8_.load();
     const bool muted = muted_.load();
 

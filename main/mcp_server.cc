@@ -315,6 +315,17 @@ void McpServer::AddUserOnlyTools() {
                     });
 }
 
+void McpServer::LogToolInventory() const {
+    size_t user_only = 0;
+    for (const auto& tool : tools_) {
+        if (tool->user_only()) {
+            ++user_only;
+        }
+    }
+    ESP_LOGI(TAG, "%u tools registered: %u visible to the model, %u user-only",
+             (unsigned)tools_.size(), (unsigned)(tools_.size() - user_only), (unsigned)user_only);
+}
+
 void McpServer::AddTool(std::unique_ptr<McpTool> tool) {
     // Prevent adding duplicate tools
     if (std::find_if(tools_.begin(), tools_.end(), [&tool](const auto& existing) {
@@ -476,13 +487,24 @@ void McpServer::ReplyResult(int id, const std::string& result,
 
 void McpServer::ReplyError(int id, int code, const std::string& message,
                            const ResponseSender& response_sender) {
+    CJsonUniquePtr json_message(cJSON_CreateString(message.c_str()));
+    if (json_message == nullptr) {
+        ESP_LOGE(TAG, "Failed to allocate MCP error message");
+        return;
+    }
+    CJsonStringUniquePtr encoded_message(cJSON_PrintUnformatted(json_message.get()));
+    if (encoded_message == nullptr) {
+        ESP_LOGE(TAG, "Failed to serialize MCP error message");
+        return;
+    }
+
     std::string payload = "{\"jsonrpc\":\"2.0\",\"id\":";
     payload += std::to_string(id);
     payload += ",\"error\":{\"code\":";
     payload += std::to_string(code);
-    payload += ",\"message\":\"";
-    payload += message;
-    payload += "\"}}";
+    payload += ",\"message\":";
+    payload += encoded_message.get();
+    payload += "}}";
     SendResponse(payload, response_sender);
 }
 

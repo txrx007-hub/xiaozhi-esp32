@@ -35,6 +35,10 @@ public:
     void Start() override;
 
     void SetMicGainDb(int db);
+    // High-pass filter in front of the gain (2nd order Butterworth, 0 = off): removes the PDM microphone's DC offset and the low rumble of the wheel motors and the table
+    // that the wake word and the speech recognizer cannot use. Speech starts above about 100 Hz.
+    void SetMicHighPassHz(int hz);
+    int mic_hpf_hz() const { return hpf_hz_.load(); }
     int mic_gain_db() const { return gain_db_.load(); }
     // Mic mute: the microphone reads silence (the wake word and the server hear nothing). Lasts until unmuted; a restart or power-off unmutes
     // (nothing is saved). The speaker is NOT muted, so timers, alarms and music still sound.
@@ -82,6 +86,11 @@ private:
 
     std::atomic<int> gain_db_{0};
     std::atomic<int> gain_q8_{256};
+    std::atomic<int> hpf_hz_{0};
+    // biquad coefficients (normalised) and state; the coefficients are written by SetMicHighPassHz, the state only by Read()
+    std::atomic<float> hpf_b0_{1.0f}, hpf_b1_{0.0f}, hpf_b2_{0.0f}, hpf_a1_{0.0f}, hpf_a2_{0.0f};
+    std::atomic<bool> hpf_reset_{false};
+    float hpf_x1_ = 0, hpf_x2_ = 0, hpf_y1_ = 0, hpf_y2_ = 0;
     std::atomic<bool> muted_{false};
     int volume_cap_ = 100;
     int requested_volume_ = 70;

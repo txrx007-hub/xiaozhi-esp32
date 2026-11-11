@@ -337,6 +337,7 @@ WalleAudioCodec* WallEBoard::walle_codec() {
                                       AUDIO_MIC_PDM_CLK, AUDIO_MIC_PDM_DATA);
         auto& settings = WalleSettings::GetInstance();
         c->SetMicGainDb(settings.GetInt("mic_gain_db"));
+        c->SetMicHighPassHz(settings.GetInt("mic_hpf_hz"));
         // no volume cap: 100% is 100%; only night mode (quiet hours) limits it, applied by Tick()
         display_->SetLevelSources([c]() { return c->output_rms(); },
                                   [c]() { return c->input_rms(); });
@@ -754,6 +755,8 @@ void WallEBoard::ApplySetting(const std::string& key) {
     auto& settings = WalleSettings::GetInstance();
     if (key == "mic_gain_db") {
         walle_codec()->SetMicGainDb(settings.GetInt("mic_gain_db"));
+    } else if (key == "mic_hpf_hz") {
+        walle_codec()->SetMicHighPassHz(settings.GetInt("mic_hpf_hz"));
     } else if (key == "wake_threshold") {
         ApplyWakeThreshold(state_ == kDeviceStateSpeaking);
     } else if (key == "quiet_start" || key == "quiet_end") {

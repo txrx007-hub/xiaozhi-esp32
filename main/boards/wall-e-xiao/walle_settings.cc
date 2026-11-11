@@ -117,6 +117,8 @@ WalleSettings::WalleSettings() {
         {"eye_color", Kind::kText, 0, 16, 0,
          "colour of the eyes as #rrggbb, empty = the eyes' own colours (set by voice: \"make your eyes blue\", \"normal eyes\"; not shown on the settings pages)"},
         {"mic_gain_db", Kind::kInt, 0, 24, 18, "software microphone gain in dB"},
+        {"mic_hpf_hz", Kind::kInt, 0, 400, 100,
+         "microphone high-pass filter in Hz (0 = off): cuts the microphone's DC offset and the low rumble of the wheel motors and table before the wake word and the speech recognizer; speech sits above about 100 Hz"},
         {"wake_threshold", Kind::kHundredths, 50, 95, 52, "wake word threshold, lower wakes more easily"},
         {"shutter_sound", Kind::kBool, 0, 1, 1, "click sound when taking a photo"},
         {"camera_brightness", Kind::kInt, -5, 5, 2,

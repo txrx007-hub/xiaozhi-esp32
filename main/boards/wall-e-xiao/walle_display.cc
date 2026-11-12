@@ -1225,10 +1225,13 @@ void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {
 }
 
 namespace {
-// Chat style scrolls by moving the bottom bar's scroll position. The lines sit tight (no extra line spacing) and the bar is exactly kChatLines lines high, so
-// the text moves line by line: one step = one text line (g_chat_pitch), each line rests only briefly (kChatHold of its time), then glides to the next one.
-constexpr int kChatLines = 2;          // lines in view at once
-int32_t g_chat_pitch = 18;             // height of one text line in px, set when the style is applied
+// Chat style scrolls by moving the bottom bar's scroll position. The bar keeps its stock height and shows exactly one wrapped line at a time, centred in the bar:
+// the line spacing is set so one text line plus its spacing is as high as the bar (g_chat_pitch = bar height). The text moves line by line: each line rests only
+// briefly (kChatHold of its time), then glides to the next one.
+constexpr int kChatLines = 1;          // lines in view at once
+constexpr int kChatLift = 2;           // px the bar sits above the bottom edge of the screen in chat style
+int32_t g_chat_pitch = 34;             // one step = bar height in px (text line + line spacing), set when the style is applied
+int32_t g_chat_space = 16;             // the extra line spacing in px
 void ChatScrollExec(void* obj, int32_t v) {
     auto* bar = static_cast<lv_obj_t*>(obj);
     const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
@@ -1260,22 +1263,26 @@ void WalleDisplay::ApplySubtitleStyle() {
     lv_anim_delete(chat_message_label_, nullptr);
     chat_text_.clear();
     if (subtitle_style_.load() == 1) {
-        // The same bar at the bottom, now exactly kChatLines text lines high with NO extra line spacing: the text wraps and rolls through it from top to bottom,
-        // one line at a time (g_chat_pitch), so a line is never cut in half at the edge.
+        // The stock bar (same height, lifted kChatLift px): the text wraps and rolls through it from top to bottom, one line at a time, each line centred in the bar.
+        // Line spacing + the padding above and below make one step exactly as high as the bar, so a line is never cut in half at the edge.
         const lv_font_t* font = lv_obj_get_style_text_font(chat_message_label_, LV_PART_MAIN);
         const int line_h = font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16;
-        g_chat_pitch = std::max(1, line_h);
-        lv_obj_set_height(bottom_bar_, g_chat_pitch * kChatLines);
-        lv_obj_set_style_pad_top(bottom_bar_, 0, 0);
-        lv_obj_set_style_pad_bottom(bottom_bar_, 0, 0);
+        const int space = std::max(0, static_cast<int>(subtitle_bar_h_) - line_h);
+        g_chat_space = space;
+        g_chat_pitch = std::max(1, line_h + space);
+        lv_obj_set_height(bottom_bar_, subtitle_bar_h_);
+        lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, -kChatLift);
+        lv_obj_set_style_pad_top(bottom_bar_, space / 2, 0);                // the first line sits in the middle of the bar
+        lv_obj_set_style_pad_bottom(bottom_bar_, space - space / 2, 0);     // the last line too: the scroll range is then exactly lines * bar height
         lv_obj_set_scroll_dir(bottom_bar_, LV_DIR_VER);
         lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_line_space(chat_message_label_, 0, 0);
+        lv_obj_set_style_text_line_space(chat_message_label_, space, 0);
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(chat_message_label_, LV_ALIGN_TOP_MID, 0, 0);
     } else {
         lv_obj_set_style_text_line_space(chat_message_label_, 0, 0);
         lv_obj_set_height(bottom_bar_, subtitle_bar_h_);
+        lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, 0);
         lv_obj_set_style_bg_opa(bottom_bar_, subtitle_bar_opa_, LV_PART_MAIN);
         lv_obj_set_style_pad_top(bottom_bar_, 0, 0);
         lv_obj_set_style_pad_bottom(bottom_bar_, 0, 0);
@@ -1310,7 +1317,7 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
     // number of text lines the label needs for the current text (layout is updated first)
     auto count_lines = [&]() {
         lv_obj_update_layout(bottom_bar_);
-        return std::max<int32_t>(1, (lv_obj_get_height(chat_message_label_) + pitch / 2) / pitch);
+        return std::max<int32_t>(1, (lv_obj_get_height(chat_message_label_) + g_chat_space + pitch / 2) / pitch);   // n lines = n * pitch - spacing
     };
     constexpr size_t kKeep = 420;   // the newest ~420 bytes; older sentences fall off the top
     int32_t shift = 0;              // text lines that fell off the top this time (the content moves up by this many lines)

@@ -732,6 +732,114 @@ esp_err_t PostPhotoHandler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// POST /api/game: the voice server's tic-tac-toe screen. Body (at most 512 bytes), for example
+//   {"g":"ttt","on":1,"b":"X.O......","l":4,"w":"","k":"turn","t":"YOUR TURN","n":["YOU","DRAW","JARVIS"],"s":[2,1,0]}      or      {"g":"ttt","on":0}
+//   b = the nine squares (X = you, O = Jarvis, . = empty), l = the square played last (-1 = none), w = the three squares of a winning line ("" = none),
+//   k = turn | win | lose | draw, t = the headline, n = the three score labels, s = the three scores. Every field is checked; a bad one answers 400 and changes nothing.
+void CopyAscii(char* out, size_t size, const char* in) {
+    size_t n = 0;
+    for (; in != nullptr && in[n] != 0 && n + 1 < size; ++n) {
+        const unsigned char c = static_cast<unsigned char>(in[n]);
+        out[n] = (c >= 0x20 && c <= 0x7e) ? static_cast<char>(c) : '?';
+    }
+    out[n] = 0;
+}
+
+esp_err_t PostGameHandler(httpd_req_t* req) {
+    std::string body;
+    if (!ReadBody(req, body)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad request body");
+        return ESP_FAIL;
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (root == nullptr) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "not JSON");
+        return ESP_FAIL;
+    }
+    auto fail = [&](const char* why) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, why);
+        return ESP_FAIL;
+    };
+    const cJSON* game = cJSON_GetObjectItem(root, "g");
+    if (!cJSON_IsString(game) || strcmp(game->valuestring, "ttt") != 0) {
+        return fail("unknown game");
+    }
+    WalleDisplay::GameView view;
+    const cJSON* on = cJSON_GetObjectItem(root, "on");
+    view.on = cJSON_IsTrue(on) || (cJSON_IsNumber(on) && on->valueint != 0);
+    if (view.on) {
+        const cJSON* b = cJSON_GetObjectItem(root, "b");
+        if (!cJSON_IsString(b) || strlen(b->valuestring) != 9) {
+            return fail("b must be nine squares");
+        }
+        for (int i = 0; i < 9; ++i) {
+            const char c = b->valuestring[i];
+            if (c != 'X' && c != 'O' && c != '.') {
+                return fail("b may only hold X, O and .");
+            }
+            view.board[i] = c;
+        }
+        const cJSON* last = cJSON_GetObjectItem(root, "l");
+        if (last != nullptr) {
+            if (!cJSON_IsNumber(last) || last->valueint < -1 || last->valueint > 8) {
+                return fail("l must be -1 to 8");
+            }
+            view.last = static_cast<int8_t>(last->valueint);
+        }
+        const cJSON* win = cJSON_GetObjectItem(root, "w");
+        if (cJSON_IsString(win) && win->valuestring[0] != 0) {
+            if (strlen(win->valuestring) != 3) {
+                return fail("w must be three squares");
+            }
+            for (int j = 0; j < 3; ++j) {
+                const char c = win->valuestring[j];
+                if (c < '0' || c > '8') {
+                    return fail("w squares are 0 to 8");
+                }
+                view.win[j] = static_cast<int8_t>(c - '0');
+            }
+        }
+        const cJSON* kind = cJSON_GetObjectItem(root, "k");
+        if (cJSON_IsString(kind)) {
+            if (strcmp(kind->valuestring, "turn") == 0) view.kind = 't';
+            else if (strcmp(kind->valuestring, "win") == 0) view.kind = 'w';
+            else if (strcmp(kind->valuestring, "lose") == 0) view.kind = 'l';
+            else if (strcmp(kind->valuestring, "draw") == 0) view.kind = 'd';
+            else return fail("k must be turn, win, lose or draw");
+        }
+        const cJSON* title = cJSON_GetObjectItem(root, "t");
+        if (cJSON_IsString(title)) {
+            CopyAscii(view.title, sizeof(view.title), title->valuestring);
+        }
+        const cJSON* names = cJSON_GetObjectItem(root, "n");
+        if (cJSON_IsArray(names) && cJSON_GetArraySize(names) == 3) {
+            for (int i = 0; i < 3; ++i) {
+                const cJSON* item = cJSON_GetArrayItem(names, i);
+                CopyAscii(view.names[i], sizeof(view.names[i]), cJSON_IsString(item) ? item->valuestring : "");
+            }
+        }
+        const cJSON* scores = cJSON_GetObjectItem(root, "s");
+        if (cJSON_IsArray(scores) && cJSON_GetArraySize(scores) == 3) {
+            for (int i = 0; i < 3; ++i) {
+                const cJSON* item = cJSON_GetArrayItem(scores, i);
+                view.score[i] = cJSON_IsNumber(item) ? std::clamp(item->valueint, 0, 99999) : 0;
+            }
+        }
+    }
+    cJSON_Delete(root);
+    WalleDisplay* display = WallEBoard::Get().walle_display();
+    cJSON* out = cJSON_CreateObject();
+    if (display == nullptr) {
+        cJSON_AddBoolToObject(out, "ok", false);
+        cJSON_AddStringToObject(out, "message", "no screen");
+    } else {
+        display->SetGame(view);   // only stores the state; the screen's own timer draws it
+        cJSON_AddBoolToObject(out, "ok", true);
+    }
+    return SendJson(req, out);
+}
+
 // POST /api/call  body {"text": "Good morning, Alex. It's 7:42 currently.", "face": true}: the robot wakes up and says the text (the greeter in the panel asks for this when it
 // sees you). With "face": true it first turns to the face (Face me, which only turns when the face is off centre) and speaks only when it ended facing it.
 // Only when the robot is idle: not napping, not ringing, not in a conversation (answer {"ok": false, "message": why}). The voice server speaks the text and keeps it in the
@@ -869,6 +977,7 @@ void Start() {
         {.uri = "/api/stop", .method = HTTP_POST, .handler = PostStopHandler, .user_ctx = nullptr},
         {.uri = "/api/net", .method = HTTP_GET, .handler = GetNetHandler, .user_ctx = nullptr},
         {.uri = "/api/camreg", .method = HTTP_POST, .handler = PostCamRegHandler, .user_ctx = nullptr},
+        {.uri = "/api/game", .method = HTTP_POST, .handler = PostGameHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

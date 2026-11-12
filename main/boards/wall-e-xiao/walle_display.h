@@ -140,9 +140,27 @@ public:
     // Called when the music mark changes, so the board can switch the microphone's spectrum analysis on even if the speaking visualizer is off.
     void SetMusicHook(std::function<void(bool)> hook) { music_hook_ = std::move(hook); }
 
+    // Tic-tac-toe screen: the voice server posts the whole board to the robot (POST /api/game, see walle_web.cc) after every move and the board is drawn over the eyes.
+    // SetGame() only stores the new state (any task); the drawing happens in the display's own timer. on = false closes the screen; it also closes by itself after 20 minutes of silence.
+    struct GameView {
+        bool on = false;
+        char board[10] = {'.', '.', '.', '.', '.', '.', '.', '.', '.', 0};   // 9 squares: 'X' (you), 'O' (Jarvis) or '.'
+        int8_t last = -1;                                                   // the square played last (highlighted), -1 = none
+        int8_t win[3] = {-1, -1, -1};                                       // the three squares of a winning line, -1 = none
+        char kind = 't';                                                    // 't' your turn, 'w' you won, 'l' Jarvis won, 'd' draw
+        char title[24] = {0};                                               // the headline ("YOUR TURN"), plain ASCII
+        char names[3][12] = {{0}, {0}, {0}};                                // the three score labels: you, draws, Jarvis
+        int score[3] = {0, 0, 0};
+    };
+    void SetGame(const GameView& view);
+
     static constexpr const char* kListeningEmotion = "relaxed";
 
 private:
+    void UpdateGameScreen();   // LVGL timer: shows, redraws and closes the game screen
+    bool EnsureGameCanvas();
+    void DrawGame(const GameView& view, const int8_t* fresh, int fresh_n, int age_ms, int pulse);
+    void ApplyEyeCover();      // the eyes and the status line are hidden while the music screen or the game screen covers them
     static constexpr int kRibbonBars = 20;
     void CreateRibbon();
     void UpdateRibbon();  // LVGL timer, ~25 fps; also drives the spectrum bars when active
@@ -266,8 +284,25 @@ private:
     bool music_big_drawn_ = false;
     std::atomic<bool> music_screen_shown_{false};
     std::atomic<bool> status_quiet_{false};   // SetStatus is ignored (an alarm rings and listens for "stop")
-    bool eyes_hidden_by_music_ = false;
-    bool status_hidden_by_music_ = false;
+    bool eyes_covered_ = false;            // the music screen or the game screen covers the eyes (ApplyEyeCover)
+    bool eyes_hidden_by_cover_ = false;
+    bool status_hidden_by_cover_ = false;
+    // game screen (tic-tac-toe)
+    std::mutex game_mutex_;                // protects game_, game_gen_ and game_seen_us_ (SetGame runs in the web server's task)
+    GameView game_;
+    uint32_t game_gen_ = 0;
+    int64_t game_seen_us_ = 0;
+    lv_obj_t* game_bg_ = nullptr;
+    lv_obj_t* game_canvas_ = nullptr;
+    uint8_t* game_buf_ = nullptr;          // PSRAM, allocated the first time a game is shown
+    std::atomic<bool> game_shown_{false};
+    GameView game_drawn_;                  // the state on the screen now (LVGL task only from here down)
+    uint32_t game_drawn_gen_ = 0;
+    char game_prev_board_[10] = {0};
+    int8_t game_fresh_[4] = {-1, -1, -1, -1};   // squares that got a mark with the last update, drawn one after the other
+    int game_fresh_n_ = 0;
+    int64_t game_anim_us_ = 0;
+    int game_drawn_frame_ = -1;
     walle_spectrum::Mode EffectiveVisualMode() const {
         return music_visual_.load() ? walle_spectrum::Mode::kWinamp : visualizer_mode_.load();
     }

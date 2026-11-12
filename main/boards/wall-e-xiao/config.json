@@ -23,7 +23,8 @@
                 "CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y",
                 "CONFIG_ESP_COREDUMP_CHECK_BOOT=y",
                 "CONFIG_ESP_COREDUMP_MAX_TASKS_NUM=96",
-                "CONFIG_LWIP_MAX_SOCKETS=16"
+                "CONFIG_LWIP_MAX_SOCKETS=16",
+                "CONFIG_LV_FONT_MONTSERRAT_20=y"
             ]
         }
     ]

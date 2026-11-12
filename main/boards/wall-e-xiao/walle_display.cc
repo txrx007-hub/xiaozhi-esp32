@@ -614,11 +614,13 @@ void WalleDisplay::UpdateSpectrumBars() {
 void WalleDisplay::UpdateRibbon() {
     constexpr int kRibbonHeight = 26;
     const Ribbon mode = ribbon_mode_.load();
+    UpdateGameScreen();   // the tic-tac-toe board (a no-op while no game is on)
+    const bool game_up = game_shown_.load();
     if (ribbon_ == nullptr || spectrum_root_ == nullptr) {
         return;
     }
-    UpdateMusicScreen(music_visual_.load() && mode == Ribbon::kOutput && !blank_ && !clock_shown_);
-    if (mode == Ribbon::kOff || blank_ || clock_shown_ || (music_visual_.load() && !music_bars_.load())) {
+    UpdateMusicScreen(music_visual_.load() && mode == Ribbon::kOutput && !blank_ && !clock_shown_ && !game_up);
+    if (mode == Ribbon::kOff || blank_ || clock_shown_ || game_up || (music_visual_.load() && !music_bars_.load())) {
         if (ribbon_visible_) {
             lv_obj_add_flag(ribbon_, LV_OBJ_FLAG_HIDDEN);
             ribbon_visible_ = false;
@@ -750,12 +752,12 @@ void WalleDisplay::SetStatus(const char* status) {
     if (status_quiet_.load()) {
         return;
     }
-    SpiLcdDisplay::SetStatus(status);  // keeps the text current, so it is right when the music screen closes
-    if (music_screen_shown_.load()) {
+    SpiLcdDisplay::SetStatus(status);  // keeps the text current, so it is right when the music screen or the game screen closes
+    if (music_screen_shown_.load() || game_shown_.load()) {
         DisplayLockGuard lock(this);
         if (status_label_ != nullptr) {
             lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
-            status_hidden_by_music_ = true;
+            status_hidden_by_cover_ = true;
         }
     }
 }
@@ -803,28 +805,13 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
         lv_obj_set_height(music_bg_, (big ? height_ - 2 - bar_h : kMusicBgBottom) - kMusicBgTop);
         SetShown(music_bg_, true);
         SetShown(music_canvas_, true);
-        if (emoji_box_ != nullptr && !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
-            eyes_hidden_by_music_ = true;
-        }
-        if (status_label_ != nullptr && !lv_obj_has_flag(status_label_, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
-            status_hidden_by_music_ = true;
-        }
         music_screen_shown_ = true;
+        ApplyEyeCover();   // eyes and status line out (shared with the game screen)
     } else {
         SetShown(music_bg_, false);
         SetShown(music_canvas_, false);
-        if (eyes_hidden_by_music_ && emoji_box_ != nullptr) {
-            lv_obj_remove_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
-        }
-        eyes_hidden_by_music_ = false;
-        if (status_hidden_by_music_ && status_label_ != nullptr &&
-            (notification_label_ == nullptr || lv_obj_has_flag(notification_label_, LV_OBJ_FLAG_HIDDEN))) {
-            lv_obj_remove_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
-        }
-        status_hidden_by_music_ = false;
         music_screen_shown_ = false;
+        ApplyEyeCover();   // and back, unless the game screen still covers them
     }
 }
 
@@ -979,6 +966,401 @@ void WalleDisplay::DrawMusicIcon(int icon, bool big) {
         DrawText(&layer, "PLAYER", k(cx + 4), k(108), w - 1, k(124), 0xe0607a, LV_TEXT_ALIGN_LEFT);
     }
     lv_canvas_finish_layer(music_canvas_, &layer);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------- tic-tac-toe screen
+// The voice server posts the whole board after every move (POST /api/game). The board is drawn over the eyes, in the same band the music screen uses: a dark panel from
+// below the top bar down to the subtitle bar, so Jarvis's spoken words stay visible underneath. Marks draw themselves in (your X first, then Jarvis's O), the last
+// move has an amber frame, a won game shows a glowing line through the three squares, and a row of pills keeps the score.
+namespace {
+
+constexpr int kGameW = 240;
+constexpr int kGameCanvasY = 4;        // the canvas starts in the title band (the top bar's corner icons stay free: the title is centred) and ends at the subtitle bar
+constexpr int kGameCanvasH = 200;
+constexpr int kGameBgTop = 28;         // the dark panel: from below the top bar ...
+constexpr int kGameBgBottom = 204;     // ... to just above the subtitle bar
+constexpr int kGameBoardX = 46;        // canvas coordinates (the canvas is at screen y 4)
+constexpr int kGameBoardY = 30;
+constexpr int kGameBoardS = 148;
+constexpr int kGameCellSize = 44;
+constexpr int kGameGap = 4;
+constexpr int kGamePad = 4;
+constexpr int kGameChipY = 182;
+constexpr int kGameMarkMs = 240;       // one mark draws itself in this long; a second one (Jarvis's reply) follows right after
+constexpr int kGameLineMs = 480;       // the winning line appears when the marks are in
+constexpr int64_t kGameExpireUs = 20LL * 60 * 1000 * 1000;   // the screen closes itself when the server has been silent this long
+constexpr uint32_t kGBgTop = 0x070b14;
+constexpr uint32_t kGBgBottom = 0x101c3a;
+constexpr uint32_t kGPanelEdge = 0x2a3a66;
+constexpr uint32_t kGPanel = 0x0c1428;
+constexpr uint32_t kGCellFill = 0x16213d;
+constexpr uint32_t kGCellEdge = 0x26365f;
+constexpr uint32_t kGNumber = 0x4f6194;
+constexpr uint32_t kGX = 0xff5a5f;       // your mark: coral
+constexpr uint32_t kGXCore = 0xffd9db;
+constexpr uint32_t kGO = 0x29e0d0;       // Jarvis's mark: teal
+constexpr uint32_t kGOCore = 0xcffffa;
+constexpr uint32_t kGAmber = 0xffb020;
+constexpr uint32_t kGDraw = 0xa9b8e6;
+
+const lv_font_t* GameTitleFont() {
+#if defined(LV_FONT_MONTSERRAT_20) && LV_FONT_MONTSERRAT_20
+    return &lv_font_montserrat_20;
+#else
+    return LV_FONT_DEFAULT;
+#endif
+}
+
+void GBox(lv_layer_t* layer, int x0, int y0, int x1, int y1, uint32_t fill, int radius, uint32_t edge = 0, int edge_w = 0, lv_opa_t opa = LV_OPA_COVER) {
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_color = lv_color_hex(fill);
+    d.bg_opa = opa;
+    d.radius = radius;
+    if (edge_w > 0) {
+        d.border_color = lv_color_hex(edge);
+        d.border_width = edge_w;
+        d.border_opa = opa;
+    }
+    lv_area_t area = {x0, y0, x1, y1};
+    lv_draw_rect(layer, &d, &area);
+}
+
+void GLine(lv_layer_t* layer, float x1, float y1, float x2, float y2, int width, uint32_t color, lv_opa_t opa) {
+    lv_draw_line_dsc_t d;
+    lv_draw_line_dsc_init(&d);
+    d.color = lv_color_hex(color);
+    d.width = width;
+    d.opa = opa;
+    d.round_start = 1;
+    d.round_end = 1;
+    DrawLine(layer, &d, x1, y1, x2, y2);
+}
+
+void GRing(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32_t color, lv_opa_t opa, int start_deg, int end_deg, bool rounded) {
+    lv_draw_arc_dsc_t d;
+    lv_draw_arc_dsc_init(&d);
+    d.center.x = cx;
+    d.center.y = cy;
+    d.radius = static_cast<uint16_t>(radius);
+    d.width = width;
+    d.start_angle = start_deg;
+    d.end_angle = end_deg;
+    d.color = lv_color_hex(color);
+    d.opa = opa;
+    d.rounded = rounded ? 1 : 0;
+    lv_draw_arc(layer, &d);
+}
+
+void GText(lv_layer_t* layer, const char* text, const lv_font_t* font, int x0, int y0, int x1, int y1, uint32_t color, lv_text_align_t align) {
+    lv_draw_label_dsc_t l;
+    lv_draw_label_dsc_init(&l);
+    l.text = text;
+    l.font = font;
+    l.color = lv_color_hex(color);
+    l.align = align;
+    l.letter_space = 1;
+    for (int dx = 0; dx <= 1; ++dx) {   // drawn twice, one pixel apart: a bolder letter, like the other texts on this screen
+        lv_area_t area = {x0 + dx, y0, x1 + dx, y1};
+        lv_draw_label(layer, &l, &area);
+    }
+}
+
+lv_opa_t Scale(lv_opa_t opa, int percent) {
+    return static_cast<lv_opa_t>(std::clamp(static_cast<int>(opa) * percent / 100, 0, 255));
+}
+
+// p = 0..1: how much of the X is drawn (the first stroke, then the second).
+void GMarkX(lv_layer_t* layer, int cx, int cy, float p, lv_opa_t opa) {
+    const float h = 11.0f;
+    const float q1 = std::clamp(p * 2.0f, 0.0f, 1.0f);
+    const float q2 = std::clamp(p * 2.0f - 1.0f, 0.0f, 1.0f);
+    for (int pass = 0; pass < 3; ++pass) {   // soft glow, body, bright core
+        const int width = pass == 0 ? 13 : (pass == 1 ? 7 : 2);
+        const uint32_t color = pass == 2 ? kGXCore : kGX;
+        const lv_opa_t o = pass == 0 ? Scale(opa, 35) : (pass == 2 ? Scale(opa, 80) : opa);
+        if (q1 > 0.0f) {
+            GLine(layer, cx - h, cy - h, cx - h + 2 * h * q1, cy - h + 2 * h * q1, width, color, o);
+        }
+        if (q2 > 0.0f) {
+            GLine(layer, cx + h, cy - h, cx + h - 2 * h * q2, cy - h + 2 * h * q2, width, color, o);
+        }
+    }
+}
+
+// p = 0..1: how much of the ring is drawn, clockwise from the top.
+void GMarkO(lv_layer_t* layer, int cx, int cy, float p, lv_opa_t opa) {
+    const int sweep = static_cast<int>(lroundf(360.0f * std::clamp(p, 0.0f, 1.0f)));
+    if (sweep <= 0) {
+        return;
+    }
+    for (int pass = 0; pass < 3; ++pass) {   // soft glow band, body ring, bright core (outer radius and width of each)
+        const int radius = pass == 0 ? 17 : (pass == 1 ? 14 : 12);
+        const int width = pass == 0 ? 10 : (pass == 1 ? 7 : 2);   // the glow is a halo around the ring (it stops at the ring's inner edge), the centre stays empty
+        const uint32_t color = pass == 2 ? kGOCore : kGO;
+        const lv_opa_t o = pass == 0 ? Scale(opa, 35) : (pass == 2 ? Scale(opa, 80) : opa);
+        if (sweep >= 360) {
+            GRing(layer, cx, cy, radius, width, color, o, 0, 360, false);
+        } else {
+            GRing(layer, cx, cy, radius, width, color, o, 270, (270 + sweep) % 360, true);
+        }
+    }
+}
+
+bool SameGameView(const WalleDisplay::GameView& a, const WalleDisplay::GameView& b) {
+    return a.on == b.on && std::memcmp(a.board, b.board, 9) == 0 && a.last == b.last && std::memcmp(a.win, b.win, 3) == 0 && a.kind == b.kind &&
+           std::strncmp(a.title, b.title, sizeof(a.title)) == 0 && std::strncmp(a.names[0], b.names[0], sizeof(a.names[0])) == 0 &&
+           std::strncmp(a.names[1], b.names[1], sizeof(a.names[1])) == 0 && std::strncmp(a.names[2], b.names[2], sizeof(a.names[2])) == 0 &&
+           std::memcmp(a.score, b.score, sizeof(a.score)) == 0;
+}
+
+}  // namespace
+
+void WalleDisplay::SetGame(const GameView& view) {
+    std::lock_guard<std::mutex> lock(game_mutex_);
+    game_ = view;
+    game_seen_us_ = esp_timer_get_time();
+    ++game_gen_;
+}
+
+// Eyes and status line are hidden while the music screen or the game screen covers them, and come back when neither does.
+void WalleDisplay::ApplyEyeCover() {
+    const bool cover = music_screen_shown_.load() || game_shown_.load();
+    if (cover && !eyes_covered_) {
+        if (emoji_box_ != nullptr && !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
+            eyes_hidden_by_cover_ = true;
+        }
+        if (status_label_ != nullptr && !lv_obj_has_flag(status_label_, LV_OBJ_FLAG_HIDDEN)) {
+            lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+            status_hidden_by_cover_ = true;
+        }
+        eyes_covered_ = true;
+    } else if (!cover && eyes_covered_) {
+        if (eyes_hidden_by_cover_ && emoji_box_ != nullptr) {
+            lv_obj_remove_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
+        }
+        eyes_hidden_by_cover_ = false;
+        if (status_hidden_by_cover_ && status_label_ != nullptr &&
+            (notification_label_ == nullptr || lv_obj_has_flag(notification_label_, LV_OBJ_FLAG_HIDDEN))) {
+            lv_obj_remove_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        status_hidden_by_cover_ = false;
+        eyes_covered_ = false;
+    }
+}
+
+bool WalleDisplay::EnsureGameCanvas() {
+    if (game_buf_ != nullptr) {
+        return true;
+    }
+    static bool reported = false;
+    const size_t size = LV_CANVAS_BUF_SIZE(kGameW, kGameCanvasH, 32, LV_DRAW_BUF_STRIDE_ALIGN);
+    game_buf_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (game_buf_ == nullptr) {
+        if (!reported) {
+            ESP_LOGE(TAG, "No memory for the %u byte game screen", (unsigned)size);
+            reported = true;
+        }
+        return false;
+    }
+    game_bg_ = MakeBox(lv_layer_top(), 0, kGameBgTop, width_, kGameBgBottom - kGameBgTop, kGBgTop, 0);
+    lv_obj_set_style_bg_grad_color(game_bg_, lv_color_hex(kGBgBottom), 0);
+    lv_obj_set_style_bg_grad_dir(game_bg_, LV_GRAD_DIR_VER, 0);
+    game_canvas_ = lv_canvas_create(lv_layer_top());
+    lv_canvas_set_buffer(game_canvas_, game_buf_, kGameW, kGameCanvasH, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_set_pos(game_canvas_, 0, kGameCanvasY);
+    lv_obj_remove_flag(game_canvas_, LV_OBJ_FLAG_CLICKABLE);
+    lv_canvas_fill_bg(game_canvas_, lv_color_black(), LV_OPA_TRANSP);
+    lv_obj_add_flag(game_bg_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(game_canvas_, LV_OBJ_FLAG_HIDDEN);
+    // Behind the Wi-Fi bars, the clock and the status dot, like the music screen.
+    lv_obj_move_background(game_canvas_);
+    lv_obj_move_background(game_bg_);
+    return true;
+}
+
+void WalleDisplay::UpdateGameScreen() {
+    GameView view;
+    uint32_t gen;
+    int64_t seen;
+    {
+        std::lock_guard<std::mutex> lock(game_mutex_);
+        view = game_;
+        gen = game_gen_;
+        seen = game_seen_us_;
+    }
+    const int64_t now = esp_timer_get_time();
+    const bool want = view.on && !blank_ && !clock_shown_ && !qr_shown_.load() && now - seen < kGameExpireUs;
+    if (!want) {
+        if (game_shown_.load()) {
+            SetShown(game_bg_, false);
+            SetShown(game_canvas_, false);
+            game_shown_ = false;
+            ApplyEyeCover();
+        }
+        return;
+    }
+    if (!EnsureGameCanvas()) {
+        return;
+    }
+    bool first = false;
+    if (!game_shown_.load()) {
+        first = true;
+        SetShown(game_bg_, true);
+        SetShown(game_canvas_, true);
+        game_shown_ = true;
+        ApplyEyeCover();
+    }
+    if (first || gen != game_drawn_gen_) {
+        game_drawn_gen_ = gen;
+        if (first || !SameGameView(view, game_drawn_)) {
+            // which squares got a mark since the last picture? Your X first, then Jarvis's O: they are drawn in one after the other.
+            game_fresh_n_ = 0;
+            if (!first) {
+                bool consistent = true;   // marks only ever get added; anything else (a new game) is shown without the draw-in
+                int8_t xs[9], os[9];
+                int nx = 0, no = 0;
+                for (int i = 0; i < 9; ++i) {
+                    if (game_prev_board_[i] != '.' && game_prev_board_[i] != view.board[i]) {
+                        consistent = false;
+                    } else if (game_prev_board_[i] == '.' && view.board[i] == 'X') {
+                        xs[nx++] = static_cast<int8_t>(i);
+                    } else if (game_prev_board_[i] == '.' && view.board[i] == 'O') {
+                        os[no++] = static_cast<int8_t>(i);
+                    }
+                }
+                if (consistent && nx + no >= 1 && nx + no <= 4) {
+                    for (int i = 0; i < nx && game_fresh_n_ < 4; ++i) game_fresh_[game_fresh_n_++] = xs[i];
+                    for (int i = 0; i < no && game_fresh_n_ < 4; ++i) game_fresh_[game_fresh_n_++] = os[i];
+                }
+            }
+            std::memcpy(game_prev_board_, view.board, 10);
+            game_drawn_ = view;
+            game_anim_us_ = now;
+            game_drawn_frame_ = -1;
+        }
+    }
+    const int age_ms = static_cast<int>((now - game_anim_us_) / 1000);
+    const bool decided = game_drawn_.kind == 'w' || game_drawn_.kind == 'l';
+    const bool animating = game_fresh_n_ > 0 || decided;
+    int frame;
+    int pulse = 1;
+    if (animating && age_ms < 700) {
+        frame = age_ms / 80;   // marks drawing themselves in, then the winning line
+        pulse = 0;
+    } else if (decided && age_ms < 9000) {
+        frame = 100 + (age_ms - 700) / 450;   // the winning line breathes for a few seconds
+        pulse = frame & 1;
+    } else {
+        frame = 200;   // still
+    }
+    if (frame != game_drawn_frame_) {
+        game_drawn_frame_ = frame;
+        DrawGame(game_drawn_, game_fresh_, game_fresh_n_, age_ms, pulse);
+    }
+}
+
+void WalleDisplay::DrawGame(const GameView& v, const int8_t* fresh, int fresh_n, int age_ms, int pulse) {
+    lv_canvas_fill_bg(game_canvas_, lv_color_black(), LV_OPA_TRANSP);
+    lv_layer_t layer;
+    lv_canvas_init_layer(game_canvas_, &layer);
+
+    const bool won_or_lost = v.kind == 'w' || v.kind == 'l';
+    const bool show_line = won_or_lost && age_ms >= kGameLineMs && v.win[0] >= 0;
+    const uint32_t title_color = v.kind == 'w' ? 0x6bff9e : (v.kind == 'l' ? 0xff7b82 : (v.kind == 'd' ? kGDraw : 0x7fd8ff));
+
+    // headline (Montserrat 20 where the build has it)
+    if (v.title[0] != 0) {
+        GText(&layer, v.title, GameTitleFont(), 26, 1, kGameW - 27, 25, title_color, LV_TEXT_ALIGN_CENTER);
+    }
+
+    // board panel
+    GBox(&layer, kGameBoardX - 2, kGameBoardY - 2, kGameBoardX + kGameBoardS + 1, kGameBoardY + kGameBoardS + 1, 0x16244d, 16, 0, 0, LV_OPA_50);   // faint halo
+    GBox(&layer, kGameBoardX, kGameBoardY, kGameBoardX + kGameBoardS - 1, kGameBoardY + kGameBoardS - 1, kGPanel, 14, kGPanelEdge, 2);
+
+    int centre_x[9], centre_y[9];
+    for (int i = 0; i < 9; ++i) {
+        const int r = i / 3, c = i % 3;
+        const int x0 = kGameBoardX + kGamePad + c * (kGameCellSize + kGameGap);
+        const int y0 = kGameBoardY + kGamePad + r * (kGameCellSize + kGameGap);
+        const int cx = x0 + kGameCellSize / 2;
+        const int cy = y0 + kGameCellSize / 2;
+        centre_x[i] = cx;
+        centre_y[i] = cy;
+        const char mark = v.board[i];
+        const bool in_line = show_line && (v.win[0] == i || v.win[1] == i || v.win[2] == i);
+
+        // how far this mark has drawn itself in (1 = complete)
+        float p = 1.0f;
+        for (int k = 0; k < fresh_n; ++k) {
+            if (fresh[k] == i) {
+                p = std::clamp(static_cast<float>(age_ms - k * kGameMarkMs) / kGameMarkMs, 0.0f, 1.0f);
+            }
+        }
+        uint32_t fill = kGCellFill, edge = kGCellEdge;
+        int edge_w = 1;
+        if (in_line) {
+            const bool mine = v.kind == 'w';
+            fill = mine ? (pulse ? 0x17573a : 0x123d2b) : (pulse ? 0x6a1f2c : 0x4a1822);
+            edge = mine ? 0x3ddc84 : 0xff5a5f;
+            edge_w = 2;
+        } else if (i == v.last && mark != '.' && v.kind == 't') {
+            edge = kGAmber;   // the last move
+            edge_w = 2;
+        }
+        GBox(&layer, x0, y0, x0 + kGameCellSize - 1, y0 + kGameCellSize - 1, fill, 9, edge, edge_w);
+
+        if (mark == '.' || p <= 0.0f) {   // an empty square shows its number, the one you can say
+            char num[2] = {static_cast<char>('1' + i), 0};
+            GText(&layer, num, LV_FONT_DEFAULT, x0, cy - 8, x0 + kGameCellSize - 1, cy + 8, kGNumber, LV_TEXT_ALIGN_CENTER);
+        } else {
+            const lv_opa_t opa = (show_line && !in_line) ? 80 : LV_OPA_COVER;   // the squares that did not win step back
+            if (mark == 'X') {
+                GMarkX(&layer, cx, cy, p, opa);
+            } else {
+                GMarkO(&layer, cx, cy, p, opa);
+            }
+        }
+    }
+
+    // the winning line: a glowing stroke through the three squares, a little past both ends
+    if (show_line) {
+        const int a = v.win[0], b = v.win[2];
+        float dx = static_cast<float>(centre_x[b] - centre_x[a]), dy = static_cast<float>(centre_y[b] - centre_y[a]);
+        const float len = sqrtf(dx * dx + dy * dy);
+        if (len > 1.0f) {
+            dx /= len;
+            dy /= len;
+            const float x1 = centre_x[a] - dx * 14.0f, y1 = centre_y[a] - dy * 14.0f, x2 = centre_x[b] + dx * 14.0f, y2 = centre_y[b] + dy * 14.0f;
+            const uint32_t strike = v.kind == 'w' ? 0x7dffb0 : 0xff9aa0;
+            GLine(&layer, x1, y1, x2, y2, 20, strike, pulse ? 110 : 50);
+            GLine(&layer, x1, y1, x2, y2, 8, strike, LV_OPA_COVER);
+            GLine(&layer, x1, y1, x2, y2, 2, 0xffffff, 200);
+        }
+    }
+
+    // score pills: you, draws, Jarvis
+    if (v.names[0][0] != 0) {
+        static const uint32_t kChipColor[3] = {kGX, kGDraw, kGO};
+        char text[3][28];
+        int width[3];
+        int total = 16;   // the gaps
+        for (int i = 0; i < 3; ++i) {
+            snprintf(text[i], sizeof(text[i]), "%s %d", v.names[i], v.score[i]);
+            lv_point_t size = {0, 0};
+            lv_text_get_size(&size, text[i], LV_FONT_DEFAULT, 1, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            width[i] = size.x + 18;
+            total += width[i];
+        }
+        int x = (kGameW - total) / 2;
+        for (int i = 0; i < 3; ++i) {
+            GBox(&layer, x, kGameChipY, x + width[i] - 1, kGameChipY + 17, 0x111a33, 9, 0x26365f, 1);
+            GText(&layer, text[i], LV_FONT_DEFAULT, x, kGameChipY + 1, x + width[i] - 1, kGameChipY + 17, kChipColor[i], LV_TEXT_ALIGN_CENTER);
+            x += width[i] + 8;
+        }
+    }
+    lv_canvas_finish_layer(game_canvas_, &layer);
 }
 
 bool WalleDisplay::EnsureCanvasBuffer() {

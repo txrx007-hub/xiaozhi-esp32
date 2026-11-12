@@ -1225,25 +1225,12 @@ void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {
 }
 
 namespace {
-// Chat style scrolls by moving the bottom bar's scroll position. The bar keeps its stock height and shows exactly one wrapped line at a time, centred in the bar:
-// the line spacing is set so one text line plus its spacing is as high as the bar (g_chat_pitch = bar height). The text moves line by line: each line rests only
-// briefly (kChatHold of its time), then glides to the next one.
-constexpr int kChatLines = 1;          // lines in view at once
+// Chat style = movie subtitles: the stock bar (same height, lifted kChatLift px), one centred line at a time. A sentence is cut into lines that fit the bar; each line stays
+// on screen about as long as the voice needs for it, then the next one replaces it (no scrolling). The last line stays a moment (kSubtitleTailMs), then the bar clears.
 constexpr int kChatLift = 2;           // px the bar sits above the bottom edge of the screen in chat style
-int32_t g_chat_pitch = 34;             // one step = bar height in px (text line + line spacing), set when the style is applied
-int32_t g_chat_space = 16;             // the extra line spacing in px
-float g_chat_hold = 0.85f;             // share of a line's time it rests; the rest is the quick slide to the next line (set per sentence, see ShowChatSentence)
-constexpr int kChatSlideMs = 200;      // one slide from line to line takes about this long (a half-cut line is only in view that short a moment)
-constexpr int kChatMsPerChar = 62;     // reading pace: the voice needs about 70 ms a character, the text stays a little ahead of it
-void ChatScrollExec(void* obj, int32_t v) {
-    auto* bar = static_cast<lv_obj_t*>(obj);
-    const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
-    const int32_t line = v / pitch;
-    const float frac = static_cast<float>(v - line * pitch) / static_cast<float>(pitch);
-    const float glide = frac < g_chat_hold ? 0.0f : (frac - g_chat_hold) / (1.0f - g_chat_hold);
-    const float smooth = glide * glide * (3.0f - 2.0f * glide);
-    lv_obj_scroll_to_y(bar, static_cast<int32_t>((static_cast<float>(line) + smooth) * static_cast<float>(pitch)), LV_ANIM_OFF);
-}
+constexpr int kSubtitleMsPerChar = 66; // the voice needs about 70 ms a character
+constexpr int kSubtitleMinMs = 1000;   // a line stays at least this long
+constexpr int kSubtitleTailMs = 1500;  // the last line of a sentence stays this long after its time is up
 }  // namespace
 
 void WalleDisplay::SetSubtitleStyle(int style) {
@@ -1261,26 +1248,21 @@ void WalleDisplay::ApplySubtitleStyle() {
         subtitle_bar_opa_ = lv_obj_get_style_bg_opa(bottom_bar_, LV_PART_MAIN);
         subtitle_scroll_dir_ = lv_obj_get_scroll_dir(bottom_bar_);
     }
-    lv_anim_delete(bottom_bar_, ChatScrollExec);
+    StopSubtitlePages();
     lv_anim_delete(chat_message_label_, nullptr);
     chat_text_.clear();
     if (subtitle_style_.load() == 1) {
-        // The stock bar (same height, lifted kChatLift px): the text wraps and rolls through it from top to bottom, one line at a time, each line centred in the bar.
-        // Line spacing + the padding above and below make one step exactly as high as the bar, so a line is never cut in half at the edge.
-        const lv_font_t* font = lv_obj_get_style_text_font(chat_message_label_, LV_PART_MAIN);
-        const int line_h = font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16;
-        const int space = std::max(0, static_cast<int>(subtitle_bar_h_) - line_h);
-        g_chat_space = space;
-        g_chat_pitch = std::max(1, line_h + space);
+        // The stock bar, lifted kChatLift px: one centred line of text at a time, no scrolling (the lines come one after the other, see ShowChatSentence).
         lv_obj_set_height(bottom_bar_, subtitle_bar_h_);
         lv_obj_align(bottom_bar_, LV_ALIGN_BOTTOM_MID, 0, -kChatLift);
-        lv_obj_set_style_pad_top(bottom_bar_, space / 2, 0);                // the first line sits in the middle of the bar
-        lv_obj_set_style_pad_bottom(bottom_bar_, space - space / 2, 0);     // the last line too: the scroll range is then exactly lines * bar height
-        lv_obj_set_scroll_dir(bottom_bar_, LV_DIR_VER);
+        lv_obj_set_style_pad_top(bottom_bar_, 0, 0);
+        lv_obj_set_style_pad_bottom(bottom_bar_, 0, 0);
+        lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
+        lv_obj_set_scroll_dir(bottom_bar_, LV_DIR_NONE);
         lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_line_space(chat_message_label_, space, 0);
+        lv_obj_set_style_text_line_space(chat_message_label_, 0, 0);
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(chat_message_label_, LV_ALIGN_TOP_MID, 0, 0);
+        lv_obj_align(chat_message_label_, LV_ALIGN_CENTER, 0, 0);
     } else {
         lv_obj_set_style_text_line_space(chat_message_label_, 0, 0);
         lv_obj_set_height(bottom_bar_, subtitle_bar_h_);
@@ -1298,70 +1280,94 @@ void WalleDisplay::ApplySubtitleStyle() {
     lv_obj_add_flag(bottom_bar_, LV_OBJ_FLAG_HIDDEN);   // shown again by the next sentence
 }
 
-// Chat style: the sentences of one answer pile up in the panel (a pause of 12 s starts a new answer at the top), and the panel scrolls
-// down to the newest sentence at speaking pace. A short answer simply stands there; a long one reads from top to bottom.
-void WalleDisplay::ShowChatSentence(const char* sentence) {
-    DisplayLockGuard lock(this);
-    const int64_t now = esp_timer_get_time();
-    if (now - chat_last_us_ > 12LL * 1000000) {
-        chat_text_.clear();
-        if (bottom_bar_ != nullptr) {
-            lv_anim_delete(bottom_bar_, ChatScrollExec);
-            lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
-        }
+void WalleDisplay::StopSubtitlePages() {   // call with the display lock held
+    if (subtitle_timer_ != nullptr) {
+        lv_timer_delete(subtitle_timer_);
+        subtitle_timer_ = nullptr;
     }
-    chat_last_us_ = now;
-    if (!chat_text_.empty()) {
-        chat_text_ += ' ';
-    }
-    chat_text_ += sentence;
-    const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
-    // number of text lines the label needs for the current text (layout is updated first)
-    auto count_lines = [&]() {
-        lv_obj_update_layout(bottom_bar_);
-        return std::max<int32_t>(1, (lv_obj_get_height(chat_message_label_) + g_chat_space + pitch / 2) / pitch);   // n lines = n * pitch - spacing
-    };
-    constexpr size_t kKeep = 420;   // the newest ~420 bytes; older sentences fall off the top
-    int32_t shift = 0;              // text lines that fell off the top this time (the content moves up by this many lines)
-    if (chat_text_.size() > kKeep && bottom_bar_ != nullptr) {
-        SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());
-        const int32_t before = count_lines();
-        const size_t cut = chat_text_.find(' ', chat_text_.size() - kKeep);
-        chat_text_.erase(0, cut == std::string::npos ? chat_text_.size() - kKeep : cut + 1);
-        SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());
-        shift = std::max<int32_t>(0, before - count_lines());
-    } else if (chat_text_.size() > kKeep) {
-        const size_t cut = chat_text_.find(' ', chat_text_.size() - kKeep);
-        chat_text_.erase(0, cut == std::string::npos ? chat_text_.size() - kKeep : cut + 1);
-    }
-    SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());   // sets the text and shows the bar
-    if (bottom_bar_ == nullptr) {
+    subtitle_pages_.clear();
+    subtitle_page_ = 0;
+}
+
+// Time one subtitle line stays on screen.
+static int64_t SubtitlePageMs(const std::string& page) {
+    return std::max<int64_t>(kSubtitleMinMs, static_cast<int64_t>(kSubtitleMsPerChar) * static_cast<int64_t>(page.size()));
+}
+
+void WalleDisplay::SubtitlePageTick(lv_timer_t* timer) {   // runs in the LVGL task (display lock held)
+    auto* self = static_cast<WalleDisplay*>(lv_timer_get_user_data(timer));
+    if (self->subtitle_page_ + 1 >= self->subtitle_pages_.size()) {
+        lv_timer_delete(timer);   // the last line stays; the clear timer takes it away
+        self->subtitle_timer_ = nullptr;
         return;
     }
-    lv_anim_delete(bottom_bar_, ChatScrollExec);
-    // the last kChatLines lines are in view when the scroll position is (lines - kChatLines) * pitch
-    const int32_t lines = count_lines();
-    const int32_t target = std::max<int32_t>(0, lines - kChatLines) * pitch;
-    // the old lines moved up when the oldest sentences were cut off: keep showing the same text (never leave a stale position behind)
-    int32_t y0 = std::clamp<int32_t>(lv_obj_get_scroll_y(bottom_bar_) - shift * pitch, 0, target);
-    lv_obj_scroll_to_y(bottom_bar_, y0, LV_ANIM_OFF);
-    if (target > y0) {
-        const int32_t steps = (target - y0 + pitch - 1) / pitch;   // lines still to roll through
-        const int64_t reading_ms = static_cast<int64_t>(kChatMsPerChar) * static_cast<int64_t>(strlen(sentence));
-        const int64_t total_ms = std::clamp<int64_t>(std::max<int64_t>(reading_ms, 600LL * steps), 600, 15000);
-        // each line rests, then slides to the next in kChatSlideMs: the hold share follows from the time one line gets
-        g_chat_hold = std::clamp(1.0f - static_cast<float>(kChatSlideMs) * static_cast<float>(steps) / static_cast<float>(total_ms), 0.30f, 0.93f);
-        lv_anim_t a;
-        lv_anim_init(&a);
-        lv_anim_set_var(&a, bottom_bar_);
-        lv_anim_set_exec_cb(&a, ChatScrollExec);
-        lv_anim_set_values(&a, y0, target);
-        lv_anim_set_duration(&a, static_cast<uint32_t>(total_ms));
-        lv_anim_set_delay(&a, 120);
-        lv_anim_set_path_cb(&a, lv_anim_path_linear);
-        lv_anim_start(&a);
-    } else if (target < y0) {
-        lv_obj_scroll_to_y(bottom_bar_, target, LV_ANIM_OFF);
+    ++self->subtitle_page_;
+    lv_label_set_text(self->chat_message_label_, self->subtitle_pages_[self->subtitle_page_].c_str());
+    lv_timer_set_period(timer, static_cast<uint32_t>(SubtitlePageMs(self->subtitle_pages_[self->subtitle_page_])));
+    lv_timer_reset(timer);
+}
+
+// Chat style = movie subtitles: the sentence is cut into lines that fit the bar (by words); the first line shows at once, the next ones follow at the speaking pace.
+// A new sentence replaces whatever is left of the previous one (the voice has moved on).
+void WalleDisplay::ShowChatSentence(const char* sentence) {
+    DisplayLockGuard lock(this);
+    StopSubtitlePages();
+    if (bottom_bar_ == nullptr || chat_message_label_ == nullptr) {
+        SpiLcdDisplay::SetChatMessage("assistant", sentence);
+        return;
+    }
+    const lv_font_t* font = lv_obj_get_style_text_font(chat_message_label_, LV_PART_MAIN);
+    lv_obj_update_layout(bottom_bar_);
+    const int32_t max_w = std::max<int32_t>(40, lv_obj_get_content_width(chat_message_label_));
+    auto fits = [&](const std::string& t) {
+        lv_point_t size;
+        lv_text_get_size(&size, t.c_str(), font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        return size.x <= max_w;
+    };
+    std::vector<std::string> pages;
+    std::string line;
+    const std::string text(sentence);
+    size_t i = 0;
+    while (i < text.size()) {
+        while (i < text.size() && text[i] == ' ') ++i;
+        size_t j = text.find(' ', i);
+        if (j == std::string::npos) j = text.size();
+        std::string word = text.substr(i, j - i);
+        i = j;
+        if (word.empty()) continue;
+        std::string trial = line.empty() ? word : line + " " + word;
+        if (fits(trial)) {
+            line = trial;
+            continue;
+        }
+        if (!line.empty()) {
+            pages.push_back(line);
+            line.clear();
+        }
+        // a single word wider than the bar: cut it (at a UTF-8 character boundary)
+        while (!fits(word) && word.size() > 1) {
+            std::string head = word;
+            while (head.size() > 1 && !fits(head)) {
+                size_t c2 = head.size() - 1;
+                while (c2 > 1 && (static_cast<unsigned char>(head[c2]) & 0xC0) == 0x80) --c2;
+                head.resize(c2);
+            }
+            pages.push_back(head);
+            word.erase(0, head.size());
+        }
+        line = word;
+    }
+    if (!line.empty()) pages.push_back(line);
+    if (pages.empty()) {
+        return;
+    }
+    subtitle_total_ms_ = 0;
+    for (const auto& pg : pages) subtitle_total_ms_ += SubtitlePageMs(pg);
+    subtitle_pages_ = std::move(pages);
+    subtitle_page_ = 0;
+    SpiLcdDisplay::SetChatMessage("assistant", subtitle_pages_[0].c_str());   // sets the text and shows the bar
+    if (subtitle_pages_.size() > 1) {
+        subtitle_timer_ = lv_timer_create(SubtitlePageTick, static_cast<uint32_t>(SubtitlePageMs(subtitle_pages_[0])), this);
     }
 }
 
@@ -1369,10 +1375,7 @@ void WalleDisplay::ClearSubtitle() {
     {
         DisplayLockGuard lock(this);
         chat_text_.clear();
-        if (bottom_bar_ != nullptr) {
-            lv_anim_delete(bottom_bar_, ChatScrollExec);
-            lv_obj_scroll_to_y(bottom_bar_, 0, LV_ANIM_OFF);
-        }
+        StopSubtitlePages();
     }
     SpiLcdDisplay::SetChatMessage("assistant", "");
 }
@@ -1389,6 +1392,8 @@ void WalleDisplay::SetChatMessage(const char* role, const char* content) {
     } else {
         if (assistant) {
             chat_text_.clear();
+            DisplayLockGuard lock(this);
+            StopSubtitlePages();   // a clear (or a plain line) ends any subtitle lines still waiting
         }
         SpiLcdDisplay::SetChatMessage(role, content);
     }
@@ -1404,7 +1409,7 @@ void WalleDisplay::SetChatMessage(const char* role, const char* content) {
     if (length > 0) {
         int64_t duration_ms = std::clamp<int64_t>(70LL * static_cast<int64_t>(length), 2500, 9000);
         if (subtitle_style_.load() == 1) {
-            duration_ms += 1500;   // chat style: a moment longer, the panel is still scrolling to the last line
+            duration_ms = subtitle_total_ms_ + kSubtitleTailMs;   // subtitles: all the lines, then the last one stays a moment
         }
         esp_timer_start_once(subtitle_clear_timer_, duration_ms * 1000);
     }

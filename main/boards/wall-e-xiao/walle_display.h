@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <esp_timer.h>
 
@@ -209,6 +210,12 @@ private:
     lv_dir_t subtitle_scroll_dir_ = LV_DIR_ALL;
     void ApplySubtitleStyle();             // re-dresses the bottom bar and label for the current style (needs the UI)
     void ShowChatSentence(const char* sentence);
+    void StopSubtitlePages();
+    static void SubtitlePageTick(lv_timer_t* timer);
+    std::vector<std::string> subtitle_pages_;   // the lines of the current sentence (chat style = subtitles)
+    size_t subtitle_page_ = 0;
+    lv_timer_t* subtitle_timer_ = nullptr;
+    int64_t subtitle_total_ms_ = 0;
     void ClearSubtitle();
     esp_timer_handle_t subtitle_clear_timer_ = nullptr;
     std::atomic<bool> suppress_preview_{false};

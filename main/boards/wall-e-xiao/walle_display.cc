@@ -1108,9 +1108,13 @@ void WalleDisplay::ApplyEmotionRecolor(const std::string& emotion) {
     }
     DisplayLockGuard lock(this);
     const int32_t chosen = eye_color_.load();
+    LvglGif::SetTint(chosen);   // the faces are tinted per pixel in the GIF player: black stays black (LVGL's image recolor turned a solid black background into the colour too)
+    if (gif_controller_) {
+        gif_controller_->RefreshTint();   // the face on the screen: at once
+        lv_image_set_src(emoji_image_, gif_controller_->image_dsc());
+    }
     if (chosen >= 0) {   // the user's colour, for every face (it also wins over the random colour of the surprised face)
-        lv_obj_set_style_image_recolor(emoji_image_, lv_color_hex(static_cast<uint32_t>(chosen)), 0);
-        lv_obj_set_style_image_recolor_opa(emoji_image_, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_recolor_opa(emoji_image_, LV_OPA_TRANSP, 0);   // no second tint on top
     } else if (emotion == "surprised") {
         static constexpr uint32_t kSurprisedColors[] = {
             0xff3b30,  // red

@@ -1186,6 +1186,7 @@ void LcdDisplay::SetEmotion(const char* emotion) {
         gif_controller_ = std::make_unique<LvglGif>(image->image_dsc());
 
         if (gif_controller_->IsLoaded()) {
+            gif_controller_->SetTintable(true);   // WALL-E: faces follow the eye colour setting (the boot GIF does not)
             // Set up frame update callback
             gif_controller_->SetFrameCallback(
                 [this]() { lv_image_set_src(emoji_image_, gif_controller_->image_dsc()); });

@@ -80,7 +80,18 @@ public:
      */
     void SetFrameCallback(std::function<void()> callback);
 
+    // WALL-E: eye colour. The tint (0xrrggbb, -1 = off) is shared by all tintable GIFs. A tinted frame is the decoded frame with every pixel turned into the tint colour
+    // at the pixel's own brightness (black stays black), written to a separate buffer, so GIFs with a solid black background do not turn the whole screen into the colour.
+    static void SetTint(int32_t rgb);
+    void SetTintable(bool tintable);   // true for the faces (not for the boot GIF); also applies the current tint to the frame on screen
+    void RefreshTint();                // the tint changed: tint the current frame again (call image_dsc() afterwards and give it to the image)
+
 private:
+    bool tintable_ = false;
+    bool tinted_ = false;              // image_dsc() hands out the tinted buffer
+    uint8_t* tint_buf_ = nullptr;      // ARGB8888, PSRAM, only allocated while a tint is on
+    lv_img_dsc_t tint_dsc_;
+    void ApplyTint();
     // GIF decoder instance
     gd_GIF* gif_;
     

@@ -1,5 +1,8 @@
 #include "lvgl_gif.h"
 #include <esp_log.h>
+#include <esp_heap_caps.h>
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 
 #define TAG "LvglGif"
@@ -48,7 +51,60 @@ const lv_img_dsc_t* LvglGif::image_dsc() const {
     if (!loaded_) {
         return nullptr;
     }
-    return &img_dsc_;
+    return tinted_ ? &tint_dsc_ : &img_dsc_;
+}
+
+// ---- WALL-E eye colour (see the header)
+static std::atomic<int32_t> s_tint{-1};
+
+void LvglGif::SetTint(int32_t rgb) {
+    s_tint.store(rgb);
+}
+
+void LvglGif::SetTintable(bool tintable) {
+    tintable_ = tintable;
+    ApplyTint();
+}
+
+void LvglGif::RefreshTint() {
+    ApplyTint();
+}
+
+void LvglGif::ApplyTint() {
+    const int32_t rgb = s_tint.load();
+    if (!loaded_ || !gif_ || !gif_->canvas || !tintable_ || rgb < 0) {
+        tinted_ = false;
+        return;
+    }
+    const size_t bytes = static_cast<size_t>(gif_->width) * gif_->height * 4;
+    if (tint_buf_ == nullptr) {
+        tint_buf_ = static_cast<uint8_t*>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (tint_buf_ == nullptr) {
+            ESP_LOGW(TAG, "No memory for the tinted frame (%u bytes)", static_cast<unsigned>(bytes));
+            tinted_ = false;
+            return;
+        }
+        memset(&tint_dsc_, 0, sizeof(tint_dsc_));
+        tint_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        tint_dsc_.header.flags = LV_IMAGE_FLAGS_MODIFIABLE;
+        tint_dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
+        tint_dsc_.header.w = gif_->width;
+        tint_dsc_.header.h = gif_->height;
+        tint_dsc_.header.stride = gif_->width * 4;
+        tint_dsc_.data = tint_buf_;
+        tint_dsc_.data_size = bytes;
+    }
+    const uint32_t tr = (rgb >> 16) & 0xFF, tg = (rgb >> 8) & 0xFF, tb = rgb & 0xFF;
+    const uint8_t* src = gif_->canvas;   // B, G, R, A
+    uint8_t* dst = tint_buf_;
+    for (size_t i = 0; i < bytes; i += 4) {
+        const uint32_t m = std::max({src[i], src[i + 1], src[i + 2]});   // the pixel's brightness
+        dst[i] = static_cast<uint8_t>((tb * m + 127) / 255);
+        dst[i + 1] = static_cast<uint8_t>((tg * m + 127) / 255);
+        dst[i + 2] = static_cast<uint8_t>((tr * m + 127) / 255);
+        dst[i + 3] = src[i + 3];
+    }
+    tinted_ = true;
 }
 
 // Animation control methods
@@ -223,7 +279,8 @@ void LvglGif::NextFrame() {
     // Render current frame
     if (gif_->canvas) {
         gd_render_frame(gif_, gif_->canvas);
-        
+        ApplyTint();   // WALL-E: eye colour
+
         // Call frame callback if set
         if (frame_callback_) {
             frame_callback_();
@@ -246,7 +303,12 @@ void LvglGif::Cleanup() {
 
     playing_ = false;
     loaded_ = false;
-    
+    tinted_ = false;
+    if (tint_buf_ != nullptr) {
+        heap_caps_free(tint_buf_);
+        tint_buf_ = nullptr;
+    }
+
     // Clear image descriptor
     memset(&img_dsc_, 0, sizeof(img_dsc_));
 }

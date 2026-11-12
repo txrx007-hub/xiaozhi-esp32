@@ -1225,11 +1225,13 @@ void WalleDisplay::HoldEmotion(const std::string& emotion, int hold_ms) {
 }
 
 namespace {
-// Chat style scrolls by moving the bottom bar's scroll position. The bar shows exactly one wrapped line at a time (the line spacing is set so one line
-// is as high as the bar), so the text moves line by line: each line rests only briefly (kChatHold of its time), then glides to the next one.
+// Chat style scrolls by moving the bottom bar's scroll position. The lines sit tight (no extra line spacing) and the bar is exactly kChatLines lines high, so
+// the text moves line by line: one step = one text line (g_chat_pitch), each line rests only briefly (kChatHold of its time), then glides to the next one.
+constexpr int kChatLines = 2;          // lines in view at once
+int32_t g_chat_pitch = 18;             // height of one text line in px, set when the style is applied
 void ChatScrollExec(void* obj, int32_t v) {
     auto* bar = static_cast<lv_obj_t*>(obj);
-    const int32_t pitch = std::max<int32_t>(1, lv_obj_get_height(bar));
+    const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
     const int32_t line = v / pitch;
     const float frac = static_cast<float>(v - line * pitch) / static_cast<float>(pitch);
     constexpr float kChatHold = 0.40f;   // a line rests for 40 % of its time, the glide to the next one takes the other 60 %
@@ -1258,16 +1260,17 @@ void WalleDisplay::ApplySubtitleStyle() {
     lv_anim_delete(chat_message_label_, nullptr);
     chat_text_.clear();
     if (subtitle_style_.load() == 1) {
-        // The same band as the scrolling line (same height, same bar): the text wraps and rolls through it from top to bottom, one line at a time.
-        // The line spacing makes one line as high as the band, so only one line is ever in view.
+        // The same bar at the bottom, now exactly kChatLines text lines high with NO extra line spacing: the text wraps and rolls through it from top to bottom,
+        // one line at a time (g_chat_pitch), so a line is never cut in half at the edge.
         const lv_font_t* font = lv_obj_get_style_text_font(chat_message_label_, LV_PART_MAIN);
         const int line_h = font != nullptr ? static_cast<int>(lv_font_get_line_height(font)) : 16;
-        const int space = std::max(0, static_cast<int>(subtitle_bar_h_) - line_h);
-        lv_obj_set_style_pad_top(bottom_bar_, space / 2, 0);   // the first line sits in the middle of the band
+        g_chat_pitch = std::max(1, line_h);
+        lv_obj_set_height(bottom_bar_, g_chat_pitch * kChatLines);
+        lv_obj_set_style_pad_top(bottom_bar_, 0, 0);
         lv_obj_set_style_pad_bottom(bottom_bar_, 0, 0);
         lv_obj_set_scroll_dir(bottom_bar_, LV_DIR_VER);
         lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_line_space(chat_message_label_, space, 0);
+        lv_obj_set_style_text_line_space(chat_message_label_, 0, 0);
         lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(chat_message_label_, LV_ALIGN_TOP_MID, 0, 0);
     } else {
@@ -1303,8 +1306,22 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
         chat_text_ += ' ';
     }
     chat_text_ += sentence;
+    const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
+    // number of text lines the label needs for the current text (layout is updated first)
+    auto count_lines = [&]() {
+        lv_obj_update_layout(bottom_bar_);
+        return std::max<int32_t>(1, (lv_obj_get_height(chat_message_label_) + pitch / 2) / pitch);
+    };
     constexpr size_t kKeep = 420;   // the newest ~420 bytes; older sentences fall off the top
-    if (chat_text_.size() > kKeep) {
+    int32_t shift = 0;              // text lines that fell off the top this time (the content moves up by this many lines)
+    if (chat_text_.size() > kKeep && bottom_bar_ != nullptr) {
+        SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());
+        const int32_t before = count_lines();
+        const size_t cut = chat_text_.find(' ', chat_text_.size() - kKeep);
+        chat_text_.erase(0, cut == std::string::npos ? chat_text_.size() - kKeep : cut + 1);
+        SpiLcdDisplay::SetChatMessage("assistant", chat_text_.c_str());
+        shift = std::max<int32_t>(0, before - count_lines());
+    } else if (chat_text_.size() > kKeep) {
         const size_t cut = chat_text_.find(' ', chat_text_.size() - kKeep);
         chat_text_.erase(0, cut == std::string::npos ? chat_text_.size() - kKeep : cut + 1);
     }
@@ -1313,13 +1330,12 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
         return;
     }
     lv_anim_delete(bottom_bar_, ChatScrollExec);
-    lv_obj_update_layout(bottom_bar_);
-    // one line per band height: the last line is at scroll position (lines - 1) * pitch
-    const int32_t pitch = std::max<int32_t>(1, lv_obj_get_height(bottom_bar_));
-    const int32_t space = lv_obj_get_style_text_line_space(chat_message_label_, LV_PART_MAIN);
-    const int32_t lines = std::max<int32_t>(1, (lv_obj_get_height(chat_message_label_) + space) / pitch);
-    const int32_t target = (lines - 1) * pitch;
-    const int32_t y0 = lv_obj_get_scroll_y(bottom_bar_);
+    // the last kChatLines lines are in view when the scroll position is (lines - kChatLines) * pitch
+    const int32_t lines = count_lines();
+    const int32_t target = std::max<int32_t>(0, lines - kChatLines) * pitch;
+    // the old lines moved up when the oldest sentences were cut off: keep showing the same text (never leave a stale position behind)
+    int32_t y0 = std::clamp<int32_t>(lv_obj_get_scroll_y(bottom_bar_) - shift * pitch, 0, target);
+    lv_obj_scroll_to_y(bottom_bar_, y0, LV_ANIM_OFF);
     if (target > y0) {
         const int32_t steps = (target - y0 + pitch - 1) / pitch;   // lines still to roll through
         const int64_t reading_ms = 36LL * static_cast<int64_t>(strlen(sentence));   // a little faster than the speaking pace (the voice needs about 70 ms a character)
@@ -1332,6 +1348,8 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
         lv_anim_set_delay(&a, 120);
         lv_anim_set_path_cb(&a, lv_anim_path_linear);
         lv_anim_start(&a);
+    } else if (target < y0) {
+        lv_obj_scroll_to_y(bottom_bar_, target, LV_ANIM_OFF);
     }
 }
 

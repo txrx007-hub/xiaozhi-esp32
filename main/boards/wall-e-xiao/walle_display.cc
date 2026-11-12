@@ -1232,13 +1232,15 @@ constexpr int kChatLines = 1;          // lines in view at once
 constexpr int kChatLift = 2;           // px the bar sits above the bottom edge of the screen in chat style
 int32_t g_chat_pitch = 34;             // one step = bar height in px (text line + line spacing), set when the style is applied
 int32_t g_chat_space = 16;             // the extra line spacing in px
+float g_chat_hold = 0.85f;             // share of a line's time it rests; the rest is the quick slide to the next line (set per sentence, see ShowChatSentence)
+constexpr int kChatSlideMs = 200;      // one slide from line to line takes about this long (a half-cut line is only in view that short a moment)
+constexpr int kChatMsPerChar = 62;     // reading pace: the voice needs about 70 ms a character, the text stays a little ahead of it
 void ChatScrollExec(void* obj, int32_t v) {
     auto* bar = static_cast<lv_obj_t*>(obj);
     const int32_t pitch = std::max<int32_t>(1, g_chat_pitch);
     const int32_t line = v / pitch;
     const float frac = static_cast<float>(v - line * pitch) / static_cast<float>(pitch);
-    constexpr float kChatHold = 0.40f;   // a line rests for 40 % of its time, the glide to the next one takes the other 60 %
-    const float glide = frac < kChatHold ? 0.0f : (frac - kChatHold) / (1.0f - kChatHold);
+    const float glide = frac < g_chat_hold ? 0.0f : (frac - g_chat_hold) / (1.0f - g_chat_hold);
     const float smooth = glide * glide * (3.0f - 2.0f * glide);
     lv_obj_scroll_to_y(bar, static_cast<int32_t>((static_cast<float>(line) + smooth) * static_cast<float>(pitch)), LV_ANIM_OFF);
 }
@@ -1345,13 +1347,16 @@ void WalleDisplay::ShowChatSentence(const char* sentence) {
     lv_obj_scroll_to_y(bottom_bar_, y0, LV_ANIM_OFF);
     if (target > y0) {
         const int32_t steps = (target - y0 + pitch - 1) / pitch;   // lines still to roll through
-        const int64_t reading_ms = 36LL * static_cast<int64_t>(strlen(sentence));   // a little faster than the speaking pace (the voice needs about 70 ms a character)
+        const int64_t reading_ms = static_cast<int64_t>(kChatMsPerChar) * static_cast<int64_t>(strlen(sentence));
+        const int64_t total_ms = std::clamp<int64_t>(std::max<int64_t>(reading_ms, 600LL * steps), 600, 15000);
+        // each line rests, then slides to the next in kChatSlideMs: the hold share follows from the time one line gets
+        g_chat_hold = std::clamp(1.0f - static_cast<float>(kChatSlideMs) * static_cast<float>(steps) / static_cast<float>(total_ms), 0.30f, 0.93f);
         lv_anim_t a;
         lv_anim_init(&a);
         lv_anim_set_var(&a, bottom_bar_);
         lv_anim_set_exec_cb(&a, ChatScrollExec);
         lv_anim_set_values(&a, y0, target);
-        lv_anim_set_duration(&a, static_cast<uint32_t>(std::clamp<int64_t>(std::max<int64_t>(reading_ms, 550LL * steps), 550, 12000)));
+        lv_anim_set_duration(&a, static_cast<uint32_t>(total_ms));
         lv_anim_set_delay(&a, 120);
         lv_anim_set_path_cb(&a, lv_anim_path_linear);
         lv_anim_start(&a);

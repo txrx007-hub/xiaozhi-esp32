@@ -171,7 +171,9 @@ void DrawCircle(lv_layer_t* layer, int cx, int cy, int radius, int width, uint32
 constexpr float kMusicScale = 1.16f;                 // the pictures are designed on a 176 x 128 grid and drawn this much larger
 constexpr int kMusicW = 204;                          // 176 * 1.16
 constexpr int kMusicH = 148;                          // 128 * 1.16
-constexpr int kMusicTop = 4;                          // the status line is blank while the music screen shows, so the picture may use that band too
+constexpr int kMusicBufW = 240;                       // the picture buffer holds the biggest picture: "music bars off" enlarges it to fill the screen above the text bar
+constexpr int kMusicBufH = 204;
+constexpr int kMusicTop = 4;                       // the status line is blank while the music screen shows, so the picture may use that band too
 constexpr int kMusicBgTop = 28;                       // the black cover starts below the top bar: its Wi-Fi icon and the dot at the right stay visible
 constexpr int kMusicBgBottom = 200;  // black cover down to just above the Winamp strip's bottom / the subtitle bar
 constexpr uint32_t kMusicPeach = 0xf3d3b4;
@@ -762,7 +764,7 @@ bool WalleDisplay::EnsureMusicCanvas() {
     if (music_buf_ != nullptr) {
         return true;
     }
-    const size_t size = LV_CANVAS_BUF_SIZE(kMusicW, kMusicH, 32, LV_DRAW_BUF_STRIDE_ALIGN);   // ARGB: transparent where nothing is drawn, so the top bar shows through
+    const size_t size = LV_CANVAS_BUF_SIZE(kMusicBufW, kMusicBufH, 32, LV_DRAW_BUF_STRIDE_ALIGN);   // ARGB: transparent where nothing is drawn, so the top bar shows through
     music_buf_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (music_buf_ == nullptr) {
         ESP_LOGE(TAG, "No memory for the %u byte music picture", (unsigned)size);
@@ -783,17 +785,22 @@ bool WalleDisplay::EnsureMusicCanvas() {
 
 void WalleDisplay::UpdateMusicScreen(bool want) {
     const int icon = music_icon_.load();
-    if (want == music_screen_shown_ && (!want || icon == music_icon_drawn_)) {
+    const bool big = !music_bars_.load();   // music bars off: the picture fills the screen down to the text bar
+    if (want == music_screen_shown_ && (!want || (icon == music_icon_drawn_ && big == music_big_drawn_))) {
         return;
     }
     if (want) {
         if (!EnsureMusicCanvas()) {
             return;
         }
-        if (icon != music_icon_drawn_) {
-            DrawMusicIcon(icon);
+        if (icon != music_icon_drawn_ || big != music_big_drawn_) {
+            DrawMusicIcon(icon, big);
             music_icon_drawn_ = icon;
+            music_big_drawn_ = big;
         }
+        // the black cover: down to just above the Winamp strip, or (no bars) down to the text bar
+        const int bar_h = subtitle_bar_h_ > 0 ? subtitle_bar_h_ : 34;
+        lv_obj_set_height(music_bg_, (big ? height_ - 2 - bar_h : kMusicBgBottom) - kMusicBgTop);
         SetShown(music_bg_, true);
         SetShown(music_canvas_, true);
         if (emoji_box_ != nullptr && !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN)) {
@@ -821,35 +828,101 @@ void WalleDisplay::UpdateMusicScreen(bool want) {
     }
 }
 
-void WalleDisplay::DrawMusicIcon(int icon) {
+void WalleDisplay::DrawMusicIcon(int icon, bool big) {
+    // Size and place of the picture. Normal: 204 x 148 near the top (the Winamp bars sit under it). big (music bars off): the picture fills the screen from the top down to the
+    // text bar: the ready-made pictures (square) as large as the height allows, the drawn icons (176 x 128 grid) as large as the width allows.
+    const int area_h = height_ - 2 - (subtitle_bar_h_ > 0 ? subtitle_bar_h_ : 34);
+    float scale = kMusicScale;
+    int w = kMusicW, h = kMusicH, px = (width_ - kMusicW) / 2, py = kMusicTop;
+#ifdef WALLE_HAS_MUSIC_ART
+    const bool art = icon >= 2;
+#else
+    const bool art = false;
+    icon &= 1;   // no picture file in this build: icons 3 and 4 show the drawn icons 1 and 2
+#endif
+    if (big) {
+        if (art) {
+            w = h = std::min(area_h, kMusicBufH);
+            px = (width_ - w) / 2;
+            py = 0;
+        } else {
+            scale = std::min(static_cast<float>(width_) / 176.0f, static_cast<float>(area_h) / 128.0f);
+            w = std::min<int>(kMusicBufW, static_cast<int>(lroundf(176.0f * scale)));
+            h = std::min<int>(kMusicBufH, static_cast<int>(lroundf(128.0f * scale)));
+            px = (width_ - w) / 2;
+            py = (area_h - h) / 2;
+        }
+    }
+    lv_canvas_set_buffer(music_canvas_, music_buf_, w, h, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_set_pos(music_canvas_, px, py);
     lv_canvas_fill_bg(music_canvas_, lv_color_black(), LV_OPA_TRANSP);   // see-through: the black cover behind it does the covering, below the top bar only
 #ifdef WALLE_HAS_MUSIC_ART
-    if (icon >= 2) {   // a ready-made picture, written straight into the canvas memory in one go
+    if (art) {   // a ready-made picture, written straight into the canvas memory in one go
         // (lv_canvas_set_px per pixel asks the screen to redraw 21,904 times; that took the display lock for a moment and made the radio skip when the picture changed)
         const int64_t began = esp_timer_get_time();
-        const uint16_t* art = icon == 2 ? kMusicArt3 : kMusicArt4;
-        const int x0 = (kMusicW - kMusicArtSize) / 2;
+        const uint16_t* pic = icon == 2 ? kMusicArt3 : kMusicArt4;
+        auto rgb = [](uint32_t v, uint32_t& r, uint32_t& g, uint32_t& bl) {   // RGB565 -> 8 bit per colour (the 5/6 bit values stretched)
+            r = (v >> 8) & 0xF8; r |= r >> 5;
+            g = (v >> 3) & 0xFC; g |= g >> 6;
+            bl = (v << 3) & 0xF8; bl |= bl >> 5;
+        };
         lv_draw_buf_t* buf = lv_canvas_get_draw_buf(music_canvas_);
-        for (int y = 0; y < kMusicArtSize; ++y) {
-            uint32_t* row = reinterpret_cast<uint32_t*>(buf->data + static_cast<size_t>(y) * buf->header.stride) + x0;
-            const uint16_t* src = art + y * kMusicArtSize;
-            for (int x = 0; x < kMusicArtSize; ++x) {
-                const uint32_t v = src[x];
-                const uint32_t r = (v >> 8) & 0xF8, g = (v >> 3) & 0xFC, bl = (v << 3) & 0xF8;
-                row[x] = 0xFF000000u | ((r | (r >> 5)) << 16) | ((g | (g >> 6)) << 8) | (bl | (bl >> 5));   // ARGB8888, the 5/6 bit colours stretched to 8 bit
+        if (!big) {
+            const int x0 = (w - kMusicArtSize) / 2;
+            for (int y = 0; y < kMusicArtSize; ++y) {
+                uint32_t* row = reinterpret_cast<uint32_t*>(buf->data + static_cast<size_t>(y) * buf->header.stride) + x0;
+                const uint16_t* src = pic + y * kMusicArtSize;
+                for (int x = 0; x < kMusicArtSize; ++x) {
+                    uint32_t r, g, bl;
+                    rgb(src[x], r, g, bl);
+                    row[x] = 0xFF000000u | (r << 16) | (g << 8) | bl;   // ARGB8888
+                }
+            }
+        } else {
+            // enlarged to w x w with bilinear smoothing (16.16 fixed point; the x positions and weights are worked out once)
+            static_assert(kMusicBufW >= 204 && kMusicBufH >= 204, "the buffer must hold the enlarged picture");
+            std::vector<uint32_t> xs(w), xf(w);
+            for (int x = 0; x < w; ++x) {
+                const uint32_t pos = static_cast<uint32_t>((static_cast<uint64_t>(x) * (kMusicArtSize - 1) << 16) / std::max(1, w - 1));
+                xs[x] = std::min<uint32_t>(pos >> 16, kMusicArtSize - 2);
+                xf[x] = pos - (xs[x] << 16);
+                if (xf[x] > 65536) xf[x] = 65536;
+            }
+            for (int y = 0; y < h; ++y) {
+                const uint32_t pos = static_cast<uint32_t>((static_cast<uint64_t>(y) * (kMusicArtSize - 1) << 16) / std::max(1, h - 1));
+                const uint32_t y0 = std::min<uint32_t>(pos >> 16, kMusicArtSize - 2);
+                uint32_t fy = pos - (y0 << 16);
+                if (fy > 65536) fy = 65536;
+                const uint16_t* r0 = pic + y0 * kMusicArtSize;
+                const uint16_t* r1 = r0 + kMusicArtSize;
+                uint32_t* row = reinterpret_cast<uint32_t*>(buf->data + static_cast<size_t>(y) * buf->header.stride);
+                for (int x = 0; x < w; ++x) {
+                    const uint32_t a = xs[x], fx = xf[x];
+                    uint32_t c[4][3];
+                    rgb(r0[a], c[0][0], c[0][1], c[0][2]);
+                    rgb(r0[a + 1], c[1][0], c[1][1], c[1][2]);
+                    rgb(r1[a], c[2][0], c[2][1], c[2][2]);
+                    rgb(r1[a + 1], c[3][0], c[3][1], c[3][2]);
+                    uint32_t out = 0xFF000000u;
+                    for (int ch = 0; ch < 3; ++ch) {
+                        const uint64_t top = (static_cast<uint64_t>(c[0][ch]) * (65536 - fx) + static_cast<uint64_t>(c[1][ch]) * fx) >> 16;
+                        const uint64_t bot = (static_cast<uint64_t>(c[2][ch]) * (65536 - fx) + static_cast<uint64_t>(c[3][ch]) * fx) >> 16;
+                        const uint32_t v = static_cast<uint32_t>((top * (65536 - fy) + bot * fy) >> 16);
+                        out |= std::min<uint32_t>(v, 255) << (16 - 8 * ch);
+                    }
+                    row[x] = out;
+                }
             }
         }
         lv_obj_invalidate(music_canvas_);
-        ESP_LOGI(TAG, "Music icon %d drawn in %d ms", icon + 1, static_cast<int>((esp_timer_get_time() - began) / 1000));
+        ESP_LOGI(TAG, "Music icon %d drawn in %d ms%s", icon + 1, static_cast<int>((esp_timer_get_time() - began) / 1000), big ? " (enlarged, no bars)" : "");
         return;
     }
-#else
-    icon &= 1;   // no picture file in this build: icons 3 and 4 show the drawn icons 1 and 2
 #endif
     lv_layer_t layer;
     lv_canvas_init_layer(music_canvas_, &layer);
     // The two pictures are designed on a 176 x 128 grid; every position, size and line width goes through k() so they can be drawn larger without redoing the design.
-    auto k = [](int v) { return static_cast<int>(lroundf(static_cast<float>(v) * kMusicScale)); };
+    auto k = [scale](int v) { return static_cast<int>(lroundf(static_cast<float>(v) * scale)); };
     auto kw = [&](int v) { return std::max(1, k(v)); };   // a line never gets thinner than one pixel
     auto rect = [&](int x0, int y0, int x1, int y1, uint32_t color, int radius) { FillRect(&layer, k(x0), k(y0), k(x1), k(y1), color, k(radius)); };
     auto ring = [&](int cx, int cy, int radius, int width, uint32_t color, int a0 = 0, int a1 = 360) { DrawCircle(&layer, k(cx), k(cy), k(radius), kw(width), color, a0, a1); };
@@ -873,7 +946,7 @@ void WalleDisplay::DrawMusicIcon(int icon) {
         tri.p[1] = {k(cx - 6), k(88)};
         tri.p[2] = {k(cx + 12), k(76)};
         lv_draw_triangle(&layer, &tri);
-        DrawText(&layer, "music player", 0, k(106), kMusicW - 1, k(124), kMusicPeach, LV_TEXT_ALIGN_CENTER);
+        DrawText(&layer, "music player", 0, k(106), w - 1, k(124), kMusicPeach, LV_TEXT_ALIGN_CENTER);
     } else {
         // Music icon 2: a ring that runs from orange through pink to violet, headphones with orange cushions, a play button, "MUSIC PLAYER".
         constexpr uint32_t kStops[4] = {0xe9692f, 0xe6609a, 0xd264b8, 0xa466c8};  // left, top, right, bottom
@@ -903,7 +976,7 @@ void WalleDisplay::DrawMusicIcon(int icon) {
         tri.p[2] = {k(cx + 8), k(63)};
         lv_draw_triangle(&layer, &tri);
         DrawText(&layer, "MUSIC", 0, k(108), k(cx - 4), k(124), 0x56b8d8, LV_TEXT_ALIGN_RIGHT);
-        DrawText(&layer, "PLAYER", k(cx + 4), k(108), kMusicW - 1, k(124), 0xe0607a, LV_TEXT_ALIGN_LEFT);
+        DrawText(&layer, "PLAYER", k(cx + 4), k(108), w - 1, k(124), 0xe0607a, LV_TEXT_ALIGN_LEFT);
     }
     lv_canvas_finish_layer(music_canvas_, &layer);
 }

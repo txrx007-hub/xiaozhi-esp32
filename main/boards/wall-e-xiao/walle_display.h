@@ -151,7 +151,7 @@ private:
     void CreateVisuals();
     void UpdateMusicScreen(bool want);  // eyes out, headphones picture in (and back)
     bool EnsureMusicCanvas();
-    void DrawMusicIcon(int icon);
+    void DrawMusicIcon(int icon, bool big);   // big = music bars off: the picture fills the screen above the text bar
     void UpdateVisual(walle_spectrum::Mode mode);
     bool EnsureCanvasBuffer();
     void DrawRadial();
@@ -263,6 +263,7 @@ private:
     lv_obj_t* music_canvas_ = nullptr;
     uint8_t* music_buf_ = nullptr;  // PSRAM, allocated the first time music plays
     int music_icon_drawn_ = -1;
+    bool music_big_drawn_ = false;
     std::atomic<bool> music_screen_shown_{false};
     std::atomic<bool> status_quiet_{false};   // SetStatus is ignored (an alarm rings and listens for "stop")
     bool eyes_hidden_by_music_ = false;

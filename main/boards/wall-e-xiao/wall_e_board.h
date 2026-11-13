@@ -36,6 +36,7 @@ public:
     // remote control could wait up to a second and the wheels stopped (they only run 500 ms per command). Every drive call, and the page's
     // /api/drive?awake=1 while the remote panel is open, keeps the radio fully awake for `ms`; after that the level the app asked for is applied again.
     void KeepRadioAwake(int ms = 8000);
+    bool RadioForced() const { return radio_forced_; }   // the radio is held awake by KeepRadioAwake() right now (reported as radio_forced in /api/status)
     void SetNetworkEventCallback(NetworkEventCallback callback) override;
 
     // Wall-E parts

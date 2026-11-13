@@ -21,6 +21,7 @@
 #include <esp_log.h>
 #include <lwip/sockets.h>
 #include <esp_pm.h>
+#include <esp_wifi.h>
 #include <esp_system.h>
 #include <freertos/task.h>
 #include <esp_timer.h>
@@ -253,6 +254,13 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddStringToObject(root, "ip", wifi.GetIpAddress().c_str());
     cJSON_AddStringToObject(root, "mac", SystemInfo::GetMacAddress().c_str());
     cJSON_AddNumberToObject(root, "rssi", wifi.GetRssi());
+    {   // how the Wi-Fi radio really runs (revision 122 and newer): "none" = full power (a conversation, music, notifications, updates or the remote control), "min" or "max" = it sleeps between beacons (idle)
+        wifi_ps_type_t ps = WIFI_PS_NONE;
+        if (esp_wifi_get_ps(&ps) == ESP_OK) {
+            cJSON_AddStringToObject(root, "wifi_ps", ps == WIFI_PS_NONE ? "none" : (ps == WIFI_PS_MIN_MODEM ? "min" : "max"));
+        }
+        cJSON_AddBoolToObject(root, "radio_forced", board.RadioForced());   // true while the remote control holds the radio awake
+    }
     cJSON_AddNumberToObject(root, "uptime_s", esp_timer_get_time() / 1000000);
     cJSON_AddStringToObject(root, "reset_reason", ResetReasonName(esp_reset_reason()));  // why this run started (the backend's robot-health card shows it)
     if (auto* codec = board.walle_codec(); codec != nullptr) {

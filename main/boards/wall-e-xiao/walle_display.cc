@@ -1060,6 +1060,10 @@ void GText(lv_layer_t* layer, const char* text, const lv_font_t* font, int x0, i
     l.color = lv_color_hex(color);
     l.align = align;
     l.letter_space = 1;
+    // LVGL draws on a canvas layer later (in lv_canvas_finish_layer), not when lv_draw_label is called: a text that lives in a local buffer (the square numbers) would be gone by
+    // then and every square would show whatever is left on the stack. Let LVGL keep its own copy.
+    l.text_local = 1;
+    l.text_length = static_cast<uint32_t>(strlen(text));
     for (int dx = 0; dx <= 1; ++dx) {   // drawn twice, one pixel apart: a bolder letter, like the other texts on this screen
         lv_area_t area = {x0 + dx, y0, x1 + dx, y1};
         lv_draw_label(layer, &l, &area);

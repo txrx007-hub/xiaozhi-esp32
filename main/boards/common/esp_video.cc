@@ -466,6 +466,7 @@ bool EspVideo::StreamStartLocked() {
     last_use_us_ = stream_since_us_;
     stream_running_ = true;
     ++stream_starts_;
+    OnStreamOn();
     // The sensor wakes from software power-down and its exposure settles: throw away the frames of the first second (at least one must arrive).
     uint32_t frames = 0;
     const int64_t warmup_us = static_cast<int64_t>(WarmupMs()) * 1000;
@@ -647,6 +648,11 @@ std::string EspVideo::DetectSensorName() {
 
 bool EspVideo::WriteSensorReg(uint16_t reg, uint8_t value) {
     std::lock_guard<std::mutex> lock(capture_mutex_);
+    return WriteSensorRegLocked(reg, value);
+}
+
+// The caller holds capture_mutex_.
+bool EspVideo::WriteSensorRegLocked(uint16_t reg, uint8_t value) {
     if (video_fd_ < 0) {
         return false;
     }

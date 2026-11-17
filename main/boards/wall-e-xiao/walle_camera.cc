@@ -59,6 +59,9 @@ const char* FormatName(v4l2_pix_fmt_t format) {
     }
 }
 
+constexpr uint16_t kFormatControl = 0x4300;   // OV5640 format control: 0x32 = UYVY, 0x33 = VYUY (see WalleCamera::OnStreamOn)
+constexpr uint8_t kYuvVyuy = 0x33;
+
 }  // namespace
 
 WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(config) {
@@ -67,6 +70,9 @@ WalleCamera::WalleCamera(const esp_video_init_config_t& config) : EspVideo(confi
         ESP_LOGI(TAG, "Camera detected: %s", sensor_name_.c_str());
         if (sensor_name_ == "OV5640") {
             af_state_ = AfState::kOff;
+            if (!WriteSensorReg(kFormatControl, kYuvVyuy)) {   // the stream that boot started (the constructor holds no lock)
+                ESP_LOGW(TAG, "Could not swap the sensor's U and V order at boot");
+            }
         }
         EnableAutoWhiteBalance();
     } else {
@@ -356,17 +362,17 @@ void WalleCamera::SetAutofocus(bool on) {
     }
 }
 
-void WalleCamera::OnStreamStarted() {
-    if (sensor_name_ == "OV5640") {
-        // Red and blue were swapped on this sensor (a red painting came out blue, skin and tongue blue/purple, whites and greens right: the
-        // U and V bytes arrive in the other order than the driver assumes). Format control 0x4300 = 0x32 is UYVY; 0x33 is VYUY, the same
-        // with U and V exchanged. Written at every stream start: the picture is taken after the warm-up, so no frame is seen with the old order.
-        constexpr uint16_t kFormatControl = 0x4300;
-        constexpr uint8_t kYuvVyuy = 0x33;
-        if (!WriteSensorReg(kFormatControl, kYuvVyuy)) {
-            ESP_LOGW(TAG, "Could not swap the sensor's U and V order");
-        }
+// Red and blue were swapped on the OV5640 (a red painting came out blue, skin and tongue blue/purple, whites and greens right: the U and V
+// bytes arrive in the other order than the driver assumes). Format control 0x4300 = 0x32 is UYVY; 0x33 is VYUY, the same with U and V exchanged.
+// Written at boot (WalleCamera constructor) and, because a stream restart after the idle stop may reset it, right after every VIDIOC_STREAMON
+// (OnStreamOn, lock held: the Locked variant, WriteSensorReg() would wait for the lock this very thread holds and hang the camera).
+void WalleCamera::OnStreamOn() {
+    if (sensor_name_ == "OV5640" && !WriteSensorRegLocked(kFormatControl, kYuvVyuy)) {
+        ESP_LOGW(TAG, "Could not swap the sensor's U and V order after the stream start");
     }
+}
+
+void WalleCamera::OnStreamStarted() {
     if (af_state_ == AfState::kNone || !af_wanted_) {
         return;
     }

@@ -37,6 +37,10 @@ protected:  // WALL-E: subclasses may read or replace the captured frame (PSRAM-
     // WALL-E: called (with the capture lock held, so it must not take it) right after the sensor streams again following an idle stop.
     // Whatever lives in the sensor (focus, ...) can be put back from here, in a task of its own.
     virtual void OnStreamStarted() {}
+    // WALL-E: called with the capture lock held right after VIDIOC_STREAMON, before the warm-up frames: sensor registers that the stream start
+    // resets can be written back here, so even the first picture has them. Must not call WriteSensorReg() (it takes the lock): use WriteSensorRegLocked().
+    virtual void OnStreamOn() {}
+    bool WriteSensorRegLocked(uint16_t reg, uint8_t value);
     // WALL-E: called without the lock after a picture woke the stream, before it is taken: wait here until the sensor is ready (focus found).
     virtual void WaitSensorSettled() {}
     // WALL-E: how long frames are thrown away after the stream starts again (the sensor wakes up, its exposure settles).

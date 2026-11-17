@@ -61,6 +61,7 @@ public:
 
 private:
     void OnStreamStarted() override;
+    void OnStreamOn() override;
     void WaitSensorSettled() override;
     int WarmupMs() const override;
     bool AutofocusContinuous();

@@ -357,6 +357,16 @@ void WalleCamera::SetAutofocus(bool on) {
 }
 
 void WalleCamera::OnStreamStarted() {
+    if (sensor_name_ == "OV5640") {
+        // Red and blue were swapped on this sensor (a red painting came out blue, skin and tongue blue/purple, whites and greens right: the
+        // U and V bytes arrive in the other order than the driver assumes). Format control 0x4300 = 0x32 is UYVY; 0x33 is VYUY, the same
+        // with U and V exchanged. Written at every stream start: the picture is taken after the warm-up, so no frame is seen with the old order.
+        constexpr uint16_t kFormatControl = 0x4300;
+        constexpr uint8_t kYuvVyuy = 0x33;
+        if (!WriteSensorReg(kFormatControl, kYuvVyuy)) {
+            ESP_LOGW(TAG, "Could not swap the sensor's U and V order");
+        }
+    }
     if (af_state_ == AfState::kNone || !af_wanted_) {
         return;
     }

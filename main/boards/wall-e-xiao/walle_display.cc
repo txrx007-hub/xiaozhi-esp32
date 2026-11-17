@@ -327,6 +327,7 @@ void WalleDisplay::SetupUI() {
     CreateVisuals();
     CreateWifiBars(network_label_, wifi_bars_);   // over the stock font icon, which stays in place as an invisible spacer
     PlaceWifiCorner();
+    CreateCover();   // under the clock (which is created next and lies over it), over the music and game screens' boxes
     CreateClock();
     ApplySubtitleStyle();   // the saved spoken-text style, now that the bottom bar and its label exist
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
@@ -384,6 +385,13 @@ void WalleDisplay::PlaceWifiCorner() {
         lv_obj_set_style_translate_y(clock_wifi_, 0, 0);
         lv_obj_set_pos(clock_wifi_, kWifiLeft - r.x1, kWifiTop - r.y1);
     }
+    if (cover_wifi_ != nullptr && cover_root_ != nullptr) {   // and the cover wallpaper's copy, at the same screen place
+        lv_area_t r;
+        lv_obj_get_coords(cover_root_, &r);
+        lv_obj_set_style_translate_x(cover_wifi_, 0, 0);
+        lv_obj_set_style_translate_y(cover_wifi_, 0, 0);
+        lv_obj_set_pos(cover_wifi_, kWifiLeft - r.x1, kWifiTop - r.y1);
+    }
 }
 
 void WalleDisplay::PaintWifiBars() {
@@ -394,6 +402,9 @@ void WalleDisplay::PaintWifiBars() {
         }
         if (clock_wifi_bars_[i] != nullptr) {
             lv_obj_set_style_bg_color(clock_wifi_bars_[i], colour, 0);
+        }
+        if (cover_wifi_bars_[i] != nullptr) {
+            lv_obj_set_style_bg_color(cover_wifi_bars_[i], colour, 0);
         }
     }
 }
@@ -615,6 +626,7 @@ void WalleDisplay::UpdateRibbon() {
     constexpr int kRibbonHeight = 26;
     const Ribbon mode = ribbon_mode_.load();
     UpdateGameScreen();   // the tic-tac-toe board (a no-op while no game is on)
+    UpdateCoverScreen();  // the Spotify cover wallpaper (a no-op while the voice server sends none)
     const bool game_up = game_shown_.load();
     if (ribbon_ == nullptr || spectrum_root_ == nullptr) {
         return;
@@ -749,11 +761,18 @@ void WalleDisplay::CreateVisuals() {
 }
 
 void WalleDisplay::SetStatus(const char* status) {
+    if (status != nullptr) {   // the cover wallpaper gives way to the eyes while the robot listens, thinks or speaks
+        const bool standby = strcmp(status, Lang::Strings::STANDBY) == 0;
+        if (standby && conv_busy_.load()) {
+            conv_idle_us_ = esp_timer_get_time();
+        }
+        conv_busy_ = !standby;
+    }
     if (status_quiet_.load()) {
         return;
     }
     SpiLcdDisplay::SetStatus(status);  // keeps the text current, so it is right when the music screen or the game screen closes
-    if (music_screen_shown_.load() || game_shown_.load()) {
+    if (music_screen_shown_.load() || game_shown_.load() || cover_shown_.load()) {
         DisplayLockGuard lock(this);
         if (status_label_ != nullptr) {
             lv_obj_add_flag(status_label_, LV_OBJ_FLAG_HIDDEN);
@@ -1129,7 +1148,7 @@ void WalleDisplay::SetGame(const GameView& view) {
 
 // Eyes and status line are hidden while the music screen or the game screen covers them, and come back when neither does.
 void WalleDisplay::ApplyEyeCover() {
-    const bool cover = music_screen_shown_.load() || game_shown_.load();
+    const bool cover = music_screen_shown_.load() || game_shown_.load() || cover_shown_.load();
     if (cover && !eyes_covered_) {
         if (emoji_box_ != nullptr && !lv_obj_has_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN)) {
             lv_obj_add_flag(emoji_box_, LV_OBJ_FLAG_HIDDEN);
@@ -2213,6 +2232,102 @@ void WalleDisplay::HideQr() {
     DisplayLockGuard lock(this);
     lv_obj_add_flag(qr_root_, LV_OBJ_FLAG_HIDDEN);
     qr_shown_ = false;
+}
+
+// ------------------------------------------------------------------------------------------------------ cover wallpaper (the voice server's Spotify cover)
+namespace {
+constexpr int64_t kCoverKeepUs = 45 * 1000000LL;   // the picture goes when nothing renews it for this long (the voice server renews it every 15 s)
+constexpr int64_t kCoverIdleUs = 1500 * 1000LL;    // after a conversation the cover comes back this long after the robot is in Standby again
+}  // namespace
+
+void WalleDisplay::CreateCover() {
+    cover_root_ = MakeBox(lv_layer_top(), 0, 0, width_, height_, 0x000000, 0);
+    cover_img_ = lv_image_create(cover_root_);
+    lv_obj_set_pos(cover_img_, 0, 0);
+    lv_obj_remove_flag(cover_img_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(cover_img_, LV_OBJ_FLAG_SCROLLABLE);
+    cover_wifi_ = MakeLabel(cover_root_, &BUILTIN_ICON_FONT, 0xffffff, "");   // the Wi-Fi icon again, over the picture
+    CreateWifiBars(cover_wifi_, cover_wifi_bars_);
+    PaintWifiBars();
+    PlaceWifiCorner();
+    lv_obj_add_flag(cover_root_, LV_OBJ_FLAG_HIDDEN);
+}
+
+uint8_t* WalleDisplay::CoverStage() {
+    if (cover_stage_ == nullptr) {
+        cover_stage_ = static_cast<uint8_t*>(heap_caps_malloc(kCoverBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (cover_stage_ == nullptr) {
+            ESP_LOGE(TAG, "No memory for the %u byte cover picture", (unsigned)kCoverBytes);
+        }
+    }
+    return cover_stage_;
+}
+
+bool WalleDisplay::CoverShow() {
+    if (cover_stage_ == nullptr || cover_img_ == nullptr || width_ != 240 || height_ != 240) {
+        return false;
+    }
+    DisplayLockGuard lock(this);
+    if (cover_buf_ == nullptr) {
+        cover_buf_ = static_cast<uint8_t*>(heap_caps_aligned_alloc(LV_DRAW_BUF_ALIGN, kCoverBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (cover_buf_ == nullptr) {
+            ESP_LOGE(TAG, "No memory for the cover picture");
+            return false;
+        }
+        cover_dsc_.header.magic = LV_IMAGE_HEADER_MAGIC;
+        cover_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+        cover_dsc_.header.w = 240;
+        cover_dsc_.header.h = 240;
+        cover_dsc_.header.stride = 240 * 2;
+        cover_dsc_.data_size = kCoverBytes;
+        cover_dsc_.data = cover_buf_;
+        lv_image_set_src(cover_img_, &cover_dsc_);
+    }
+    memcpy(cover_buf_, cover_stage_, kCoverBytes);
+    lv_obj_invalidate(cover_img_);
+    cover_valid_ = true;
+    cover_until_us_ = esp_timer_get_time() + kCoverKeepUs;
+    return true;
+}
+
+void WalleDisplay::CoverKeep() {
+    if (cover_valid_.load()) {
+        cover_until_us_ = esp_timer_get_time() + kCoverKeepUs;
+    }
+}
+
+void WalleDisplay::CoverClear() {
+    cover_valid_ = false;
+    cover_until_us_ = 0;
+}
+
+// LVGL timer (display lock held). The cover shows while the robot is idle and has a fresh picture, and never over the clock, the nap screen, a QR page, the game or the music screen.
+void WalleDisplay::UpdateCoverScreen() {
+    if (cover_root_ == nullptr) {
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    const bool idle = !conv_busy_.load() && now - conv_idle_us_.load() > kCoverIdleUs;
+    const bool want = cover_valid_.load() && now < cover_until_us_.load() && idle && !blank_ && !clock_shown_ && !qr_shown_.load() &&
+                      !game_shown_.load() && !music_screen_shown_.load();
+    if (want == cover_shown_.load()) {
+        return;
+    }
+    cover_shown_ = want;
+    if (want) {
+        PlaceWifiCorner();   // the icon exactly where the eyes have it, in the same colours
+        PaintWifiBars();
+        SetShown(cover_root_, true);
+        if (status_dot_ != nullptr) {
+            lv_obj_move_foreground(status_dot_);
+        }
+        if (mute_on_) {
+            PlaceMuteIcon();
+        }
+    } else {
+        SetShown(cover_root_, false);
+    }
+    ApplyEyeCover();   // the eyes and the status line step aside, and come back with the cover gone
 }
 
 void WalleDisplay::ShowIdleClock(bool show) {

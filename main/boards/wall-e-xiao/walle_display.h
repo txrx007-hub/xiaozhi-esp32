@@ -154,6 +154,17 @@ public:
     };
     void SetGame(const GameView& view);
 
+    // Cover wallpaper: the voice server's Spotify cover (POST /api/cover, see walle_web.cc), a full-screen picture under the Wi-Fi icon, the mute icon and the status dot, so only the
+    // background changes. It shows while the robot is idle (not listening or speaking, no clock, no nap, no game, no music screen) and goes by itself when the voice server stops
+    // renewing it (CoverKeep). The web task fills CoverStage() (240 x 240, RGB565, little endian = kCoverBytes) and calls CoverShow(), which copies it under the display lock.
+    static constexpr size_t kCoverBytes = 240 * 240 * 2;
+    uint8_t* CoverStage();     // the staging buffer (PSRAM, allocated on first use), nullptr when there is no memory
+    bool CoverShow();          // the staging buffer holds a complete new picture: take it over and show it
+    void CoverKeep();          // the same picture goes on for another while
+    void CoverClear();         // the picture is over
+    bool CoverUp() const { return cover_shown_.load(); }
+    bool HasCover() const { return cover_valid_.load() && esp_timer_get_time() < cover_until_us_.load(); }   // a picture is held and has not run out
+
     static constexpr const char* kListeningEmotion = "relaxed";
 
 private:
@@ -246,7 +257,22 @@ private:
     static constexpr int kWifiBars = 5;
     lv_obj_t* wifi_bars_[kWifiBars] = {};
     lv_obj_t* clock_wifi_bars_[kWifiBars] = {};
-    int wifi_level_ = 0;          // bars lit: 0 (no link) .. kWifiBars
+    // The cover wallpaper (see CoverShow): a full-screen box on the top layer with the picture and a copy of the Wi-Fi icon, under the mute icon and the status dot.
+    void CreateCover();
+    void UpdateCoverScreen();   // LVGL timer: shows and hides the cover
+    lv_obj_t* cover_root_ = nullptr;
+    lv_obj_t* cover_img_ = nullptr;
+    lv_obj_t* cover_wifi_ = nullptr;
+    lv_obj_t* cover_wifi_bars_[kWifiBars] = {};
+    uint8_t* cover_stage_ = nullptr;   // filled by the web task
+    uint8_t* cover_buf_ = nullptr;     // what the screen draws from (copied under the display lock)
+    lv_image_dsc_t cover_dsc_ = {};
+    std::atomic<bool> cover_valid_{false};
+    std::atomic<bool> cover_shown_{false};
+    std::atomic<int64_t> cover_until_us_{0};
+    std::atomic<bool> conv_busy_{false};        // the robot is listening, thinking or speaking (any status but Standby)
+    std::atomic<int64_t> conv_idle_us_{0};      // since when it is in Standby again
+    int wifi_level_ = 0;         // bars lit: 0 (no link) .. kWifiBars
     int wifi_rssi_avg_ = 0;       // smoothed signal strength in dBm, 0 = none yet
     int64_t wifi_read_us_ = 0;
     int wifi_dx_ = 0;             // how far the icon is drawn from where the top bar's layout puts it (up and left, to sit in the corner)

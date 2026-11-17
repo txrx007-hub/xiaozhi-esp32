@@ -289,6 +289,7 @@ esp_err_t GetStatusHandler(httpd_req_t* req) {
     cJSON_AddBoolToObject(root, "napping", board.IsNapping());
     // true only while the audio is music, a radio station or a podcast (the server marked that turn); false while Jarvis speaks. The status line of the page and the app says "Music mode" from it (firmware 109 and newer).
     cJSON_AddBoolToObject(root, "music", board.walle_display() != nullptr && board.walle_display()->MusicPlaying());
+    cJSON_AddBoolToObject(root, "cover", board.walle_display() != nullptr && board.walle_display()->CoverUp());   // the Spotify cover wallpaper is on the screen now (firmware 125 and newer)
     cJSON_AddBoolToObject(root, "follow", WalleSettings::GetInstance().GetBool("follow_mode"));   // follow mode: the toggle of the page and the app
     cJSON_AddBoolToObject(root, "eyes", WalleSettings::GetInstance().GetBool("eyes_follow"));     // eyes follow: its own toggle next to it (firmware build 94 and newer)
     cJSON_AddNumberToObject(root, "cpu_load", CpuLoadPercent());
@@ -848,6 +849,70 @@ esp_err_t PostGameHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/cover: the voice server's cover wallpaper (the Spotify cover of the song that plays, see docs/spotify.md in the backend). Three forms:
+//   POST /api/cover            body = 240 x 240 pixels, RGB565, little endian (115,200 bytes): the new picture, shown full screen under the Wi-Fi and mute icons
+//   POST /api/cover?keep=1     no body: the picture goes on (it goes by itself 45 s after the last picture or keep); answers {"ok": false, "message": "no picture"} when the robot has none, so the
+//                              sender knows to send the picture again (after a restart of the robot, or when the picture was cleared)
+//   POST /api/cover?clear=1    no body: the music stopped, the picture goes
+// The picture only shows while the robot is idle (not in a conversation, no clock, no nap, no game, no music screen). Answer {"ok": true, "shown": bool}.
+esp_err_t PostCoverHandler(httpd_req_t* req) {
+    WalleDisplay* display = WallEBoard::Get().walle_display();
+    cJSON* out = cJSON_CreateObject();
+    if (display == nullptr) {
+        cJSON_AddBoolToObject(out, "ok", false);
+        cJSON_AddStringToObject(out, "message", "no screen");
+        return SendJson(req, out);
+    }
+    char query[32] = {};
+    httpd_req_get_url_query_str(req, query, sizeof(query));
+    char val[4] = {};
+    if (httpd_query_key_value(query, "clear", val, sizeof(val)) == ESP_OK) {
+        display->CoverClear();
+        cJSON_AddBoolToObject(out, "ok", true);
+        return SendJson(req, out);
+    }
+    if (httpd_query_key_value(query, "keep", val, sizeof(val)) == ESP_OK) {
+        if (display->HasCover()) {
+            display->CoverKeep();
+            cJSON_AddBoolToObject(out, "ok", true);
+            cJSON_AddBoolToObject(out, "shown", display->CoverUp());
+        } else {
+            cJSON_AddBoolToObject(out, "ok", false);
+            cJSON_AddStringToObject(out, "message", "no picture");
+        }
+        return SendJson(req, out);
+    }
+    if (req->content_len != WalleDisplay::kCoverBytes) {
+        cJSON_Delete(out);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "the body must be 240 x 240 RGB565 (115200 bytes)");
+        return ESP_FAIL;
+    }
+    uint8_t* stage = display->CoverStage();
+    if (stage == nullptr) {
+        cJSON_AddBoolToObject(out, "ok", false);
+        cJSON_AddStringToObject(out, "message", "no memory");
+        return SendJson(req, out);
+    }
+    size_t received = 0;
+    while (received < WalleDisplay::kCoverBytes) {
+        const int n = httpd_req_recv(req, reinterpret_cast<char*>(stage) + received, WalleDisplay::kCoverBytes - received);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            continue;
+        }
+        if (n <= 0) {
+            cJSON_Delete(out);
+            return ESP_FAIL;
+        }
+        received += n;
+    }
+    const bool ok = display->CoverShow();
+    cJSON_AddBoolToObject(out, "ok", ok);
+    if (ok) {
+        cJSON_AddBoolToObject(out, "shown", display->CoverUp());
+    }
+    return SendJson(req, out);
+}
+
 // POST /api/call  body {"text": "Good morning, Alex. It's 7:42 currently.", "face": true}: the robot wakes up and says the text (the greeter in the panel asks for this when it
 // sees you). With "face": true it first turns to the face (Face me, which only turns when the face is off centre) and speaks only when it ended facing it.
 // Only when the robot is idle: not napping, not ringing, not in a conversation (answer {"ok": false, "message": why}). The voice server speaks the text and keeps it in the
@@ -986,6 +1051,7 @@ void Start() {
         {.uri = "/api/net", .method = HTTP_GET, .handler = GetNetHandler, .user_ctx = nullptr},
         {.uri = "/api/camreg", .method = HTTP_POST, .handler = PostCamRegHandler, .user_ctx = nullptr},
         {.uri = "/api/game", .method = HTTP_POST, .handler = PostGameHandler, .user_ctx = nullptr},
+        {.uri = "/api/cover", .method = HTTP_POST, .handler = PostCoverHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

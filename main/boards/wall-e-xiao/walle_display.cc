@@ -769,6 +769,15 @@ void WalleDisplay::SetStatus(const char* status) {
             conv_idle_us_ = esp_timer_get_time();
         }
         conv_busy_ = !standby;
+        if (cover_status_ != nullptr) {   // the state line on the cover: shown while a conversation runs, hidden in Standby
+            DisplayLockGuard lock(this);
+            lv_label_set_text(cover_status_, status);
+            if (standby) {
+                lv_obj_add_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_remove_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
     }
     if (status_quiet_.load()) {
         return;
@@ -2252,6 +2261,13 @@ void WalleDisplay::CreateCover() {
     CreateWifiBars(cover_wifi_, cover_wifi_bars_);
     PaintWifiBars();
     PlaceWifiCorner();
+    // The robot's state (Listening..., Thinking..., Speaking...) stays on the cover while a conversation runs: only this line shows, the picture does not go away.
+    cover_status_ = MakeLabel(cover_root_, LV_FONT_DEFAULT, 0xffffff, "");
+    lv_obj_set_width(cover_status_, 130);
+    lv_label_set_long_mode(cover_status_, LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_align(cover_status_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(cover_status_, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_add_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(cover_root_, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -2330,7 +2346,9 @@ void WalleDisplay::UpdateCoverScreen() {
             clock_hook_(true);   // the cover has been gone for 4 seconds: the clock it held back comes up and stays until the robot is woken
         }
     }
-    const bool want = cover_valid_.load() && now < cover_until_us_.load() && idle && !blank_ && !clock_shown_ && !qr_shown_.load() &&
+    // Not tied to Standby any more: the cover stays through a wake-up (only the state line shows on it) and flips to the next song's cover by itself; it goes only when the voice
+    // server clears it ("stop tracking Spotify", the music stopped) or stops renewing it.
+    const bool want = cover_valid_.load() && now < cover_until_us_.load() && !blank_ && !clock_shown_ && !qr_shown_.load() &&
                       !game_shown_.load() && !music_screen_shown_.load();
     if (want == cover_shown_.load()) {
         return;

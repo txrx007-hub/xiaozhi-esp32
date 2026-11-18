@@ -155,7 +155,7 @@ public:
     void SetGame(const GameView& view);
 
     // Cover wallpaper: the voice server's Spotify cover (POST /api/cover, see walle_web.cc), a full-screen picture under the Wi-Fi icon, the mute icon and the status dot, so only the
-    // background changes. It shows while the robot is idle (not listening or speaking, no clock, no nap, no game, no music screen) and goes by itself when the voice server stops
+    // background changes. It stays through a wake-up (only a state line shows at the top; no clock, no nap, no QR page, no game, no music screen) and goes by itself when the voice server stops
     // renewing it (CoverKeep). The web task fills CoverStage() (240 x 240, RGB565, little endian = kCoverBytes) and calls CoverShow(), which copies it under the display lock.
     static constexpr size_t kCoverBytes = 240 * 240 * 2;
     uint8_t* CoverStage();     // the staging buffer (PSRAM, allocated on first use), nullptr when there is no memory
@@ -276,6 +276,7 @@ private:
     lv_obj_t* cover_root_ = nullptr;
     lv_obj_t* cover_img_ = nullptr;
     lv_obj_t* cover_wifi_ = nullptr;
+    lv_obj_t* cover_status_ = nullptr;   // the listening / thinking / speaking state at the top of the cover (hidden in Standby)
     lv_obj_t* cover_wifi_bars_[kWifiBars] = {};
     uint8_t* cover_stage_ = nullptr;   // filled by the web task
     uint8_t* cover_buf_ = nullptr;     // what the screen draws from (copied under the display lock)

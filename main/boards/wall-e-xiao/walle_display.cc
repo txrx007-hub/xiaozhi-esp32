@@ -761,7 +761,9 @@ void WalleDisplay::CreateVisuals() {
 }
 
 void WalleDisplay::SetStatus(const char* status) {
-    if (status != nullptr) {   // the cover wallpaper gives way to the eyes while the robot listens, thinks or speaks
+    // The stock status bar writes the time ("14:05") into the status while idle: that is still Standby, not a conversation.
+    const bool is_clock = status != nullptr && strlen(status) == 5 && status[2] == ':';
+    if (status != nullptr && !is_clock) {   // the cover wallpaper gives way to the eyes while the robot listens, thinks or speaks
         const bool standby = strcmp(status, Lang::Strings::STANDBY) == 0;
         if (standby && conv_busy_.load()) {
             conv_idle_us_ = esp_timer_get_time();

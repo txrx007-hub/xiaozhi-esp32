@@ -165,6 +165,13 @@ public:
     bool CoverUp() const { return cover_shown_.load(); }
     bool HasCover() const { return cover_valid_.load() && esp_timer_get_time() < cover_until_us_.load(); }   // a picture is held and has not run out
 
+    // The cover beats the idle clock: while a cover is held the clock does not come up (the board asks DeferClockForCover when its idle timer fires), a clock that is already up gives way
+    // to a cover that arrives, and once the cover has been gone for 4 seconds (a song change is over by then) the clock that was held back comes up. The hook runs on the application
+    // task (the board's lambda): true = show the clock, false = take it away (the cover takes over).
+    void SetClockHook(std::function<void(bool)> hook) { clock_hook_ = std::move(hook); }
+    bool DeferClockForCover();   // the idle clock is due: true = a cover is held, so it is kept back (it comes later), false = show it now
+    void SetClockPending(bool pending) { clock_pending_ = pending; }
+
     static constexpr const char* kListeningEmotion = "relaxed";
 
 private:
@@ -272,6 +279,11 @@ private:
     std::atomic<int64_t> cover_until_us_{0};
     std::atomic<bool> conv_busy_{false};        // the robot is listening, thinking or speaking (any status but Standby)
     std::atomic<int64_t> conv_idle_us_{0};      // since when it is in Standby again
+    std::function<void(bool)> clock_hook_;
+    std::atomic<bool> clock_pending_{false};    // the idle clock is due but a cover holds it back
+    bool cover_held_prev_ = false;              // (LVGL timer only) a cover was held at the last look
+    int64_t cover_gone_us_ = 0;                 // since when no cover is held
+    bool clock_hook_sent_ = false;              // (LVGL timer only) the clock was asked to go (cover arrived) and has not gone yet
     int wifi_level_ = 0;         // bars lit: 0 (no link) .. kWifiBars
     int wifi_rssi_avg_ = 0;       // smoothed signal strength in dBm, 0 = none yet
     int64_t wifi_read_us_ = 0;

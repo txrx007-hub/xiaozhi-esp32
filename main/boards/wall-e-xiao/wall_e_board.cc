@@ -309,6 +309,20 @@ void WallEBoard::InitializeIdleClock() {
         delete idle_timer_;
         idle_timer_ = nullptr;
     }
+    // The Spotify cover beats the clock: it takes a clock that is up away (the clock then waits), and 4 s after the cover is gone the held-back clock comes up (see WalleDisplay::SetClockHook).
+    display_->SetClockHook([this](bool show) {
+        Application::GetInstance().Schedule([this, show]() {
+            if (show) {
+                if (!napping_ && !ringing_ && Application::GetInstance().GetDeviceState() == kDeviceStateIdle) {
+                    display_->ShowIdleClock(true);
+                    WalleWeather::GetInstance().RefreshInBackground();
+                }
+            } else if (display_->IsIdleClockShown() && Application::GetInstance().GetDeviceState() == kDeviceStateIdle) {
+                display_->ShowIdleClock(false);
+                display_->SetClockPending(true);
+            }
+        });
+    });
     const int minutes = WalleSettings::GetInstance().GetInt("idle_clock_min");
     if (minutes <= 0) {
         display_->ShowIdleClock(false);
@@ -319,6 +333,9 @@ void WallEBoard::InitializeIdleClock() {
     idle_timer_->OnEnterSleepMode([this]() {
         Application::GetInstance().Schedule([this]() {
             if (!napping_ && !ringing_) {
+                if (display_->DeferClockForCover()) {
+                    return;   // a Spotify cover is on the screen: the clock waits until it has been gone for 4 seconds
+                }
                 display_->ShowIdleClock(true);
                 WalleWeather::GetInstance().RefreshInBackground();
             }

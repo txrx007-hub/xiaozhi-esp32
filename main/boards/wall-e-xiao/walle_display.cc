@@ -2310,6 +2310,26 @@ void WalleDisplay::UpdateCoverScreen() {
     }
     const int64_t now = esp_timer_get_time();
     const bool idle = !conv_busy_.load() && now - conv_idle_us_.load() > kCoverIdleUs;
+    // The cover beats the idle clock (see DeferClockForCover): the clock gives way to a cover, and returns 4 s after the cover is gone.
+    const bool held = HasCover();
+    if (held) {
+        cover_held_prev_ = true;
+    } else if (cover_held_prev_) {
+        cover_held_prev_ = false;
+        cover_gone_us_ = now;
+    }
+    if (!clock_shown_) {
+        clock_hook_sent_ = false;
+    }
+    if (clock_hook_) {
+        if (held && idle && clock_shown_ && !clock_hook_sent_) {
+            clock_hook_sent_ = true;
+            clock_hook_(false);   // the clock goes, the cover takes its place, and the clock is held back for later
+        } else if (!held && !cover_held_prev_ && clock_pending_.load() && idle && !clock_shown_ && now - cover_gone_us_ > 4000 * 1000LL) {
+            clock_pending_ = false;
+            clock_hook_(true);   // the cover has been gone for 4 seconds: the clock it held back comes up and stays until the robot is woken
+        }
+    }
     const bool want = cover_valid_.load() && now < cover_until_us_.load() && idle && !blank_ && !clock_shown_ && !qr_shown_.load() &&
                       !game_shown_.load() && !music_screen_shown_.load();
     if (want == cover_shown_.load()) {
@@ -2332,9 +2352,18 @@ void WalleDisplay::UpdateCoverScreen() {
     ApplyEyeCover();   // the eyes and the status line step aside, and come back with the cover gone
 }
 
+bool WalleDisplay::DeferClockForCover() {
+    if (!HasCover()) {
+        return false;
+    }
+    clock_pending_ = true;
+    return true;
+}
+
 void WalleDisplay::ShowIdleClock(bool show) {
     if (!show) {
         HideQr();  // every wake-up leaves the idle screen through here, so it also ends a QR page
+        clock_pending_ = false;   // a wake-up ends the wait for the cover (the board sets it again right after when a cover takes the clock's place)
     }
     if (clock_root_ == nullptr || show == clock_shown_) {
         return;

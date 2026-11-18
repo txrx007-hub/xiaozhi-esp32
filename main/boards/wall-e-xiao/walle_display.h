@@ -171,6 +171,12 @@ public:
     void SetClockHook(std::function<void(bool)> hook) { clock_hook_ = std::move(hook); }
     bool DeferClockForCover();   // the idle clock is due: true = a cover is held, so it is kept back (it comes later), false = show it now
     void SetClockPending(bool pending) { clock_pending_ = pending; }
+    // What keeps the cover off, as bits (the status page's "cover_dbg"): 1 a picture is held, 2 idle (not in a conversation), 4 screen blank, 8 clock up, 16 QR, 32 game, 64 music screen, 128 clock held back.
+    uint32_t CoverDebug() const {
+        const int64_t now = esp_timer_get_time();
+        return (HasCover() ? 1u : 0u) | ((!conv_busy_.load() && now - conv_idle_us_.load() > 1500 * 1000LL) ? 2u : 0u) | (blank_ ? 4u : 0u) | (clock_shown_ ? 8u : 0u) |
+               (qr_shown_.load() ? 16u : 0u) | (game_shown_.load() ? 32u : 0u) | (music_screen_shown_.load() ? 64u : 0u) | (clock_pending_.load() ? 128u : 0u);
+    }
 
     static constexpr const char* kListeningEmotion = "relaxed";
 

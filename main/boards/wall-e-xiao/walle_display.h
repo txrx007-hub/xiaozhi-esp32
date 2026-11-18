@@ -277,6 +277,9 @@ private:
     lv_obj_t* cover_img_ = nullptr;
     lv_obj_t* cover_wifi_ = nullptr;
     lv_obj_t* cover_status_ = nullptr;   // the listening / thinking / speaking state at the top of the cover (hidden in Standby)
+    std::mutex cover_status_mutex_;      // guards only the two members below; nothing else is done while it is held
+    std::string cover_status_text_;
+    std::atomic<bool> cover_status_dirty_{false};
     lv_obj_t* cover_wifi_bars_[kWifiBars] = {};
     uint8_t* cover_stage_ = nullptr;   // filled by the web task
     uint8_t* cover_buf_ = nullptr;     // what the screen draws from (copied under the display lock)

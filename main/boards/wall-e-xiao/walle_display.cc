@@ -769,14 +769,10 @@ void WalleDisplay::SetStatus(const char* status) {
             conv_idle_us_ = esp_timer_get_time();
         }
         conv_busy_ = !standby;
-        if (cover_status_ != nullptr) {   // the state line on the cover: shown while a conversation runs, hidden in Standby
-            DisplayLockGuard lock(this);
-            lv_label_set_text(cover_status_, status);
-            if (standby) {
-                lv_obj_add_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
-            } else {
-                lv_obj_remove_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
-            }
+        {   // the state line on the cover: handed to the display's own timer (UpdateCoverScreen), so no other task ever waits for the display lock here
+            std::lock_guard<std::mutex> g(cover_status_mutex_);
+            cover_status_text_ = standby ? "" : status;
+            cover_status_dirty_ = true;
         }
     }
     if (status_quiet_.load()) {
@@ -2323,6 +2319,19 @@ void WalleDisplay::CoverClear() {
 void WalleDisplay::UpdateCoverScreen() {
     if (cover_root_ == nullptr) {
         return;
+    }
+    if (cover_status_dirty_.exchange(false) && cover_status_ != nullptr) {   // the state line on the cover: shown while a conversation runs, hidden in Standby
+        std::string text;
+        {
+            std::lock_guard<std::mutex> g(cover_status_mutex_);
+            text = cover_status_text_;
+        }
+        lv_label_set_text(cover_status_, text.c_str());
+        if (text.empty()) {
+            lv_obj_add_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_remove_flag(cover_status_, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     const int64_t now = esp_timer_get_time();
     const bool idle = !conv_busy_.load() && now - conv_idle_us_.load() > kCoverIdleUs;

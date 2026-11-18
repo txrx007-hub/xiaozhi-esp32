@@ -895,11 +895,18 @@ esp_err_t PostCoverHandler(httpd_req_t* req) {
         return SendJson(req, out);
     }
     size_t received = 0;
+    int stalls = 0;
     while (received < WalleDisplay::kCoverBytes) {
         const int n = httpd_req_recv(req, reinterpret_cast<char*>(stage) + received, WalleDisplay::kCoverBytes - received);
         if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++stalls >= 3) {   // nothing arrived for three receive timeouts (about 15 s): the sender is gone, so the web server must not wait for it for ever
+                ESP_LOGW(TAG, "Cover upload stalled at %u of %u bytes: dropped", (unsigned)received, (unsigned)WalleDisplay::kCoverBytes);
+                cJSON_Delete(out);
+                return ESP_FAIL;
+            }
             continue;
         }
+        stalls = 0;
         if (n <= 0) {
             cJSON_Delete(out);
             return ESP_FAIL;

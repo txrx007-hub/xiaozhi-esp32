@@ -853,6 +853,7 @@ void WallEBoard::StartRinging(const std::string& label) {
         display_->SetStatusQuiet(true);
         if (Application::GetInstance().DeviceCall("[alarm]")) {
             alarm_listening_ = true;
+            Application::GetInstance().HoldListenWatchdog(true);   // this session listens for minutes on purpose
         } else {
             display_->SetStatusQuiet(false);
         }
@@ -867,6 +868,7 @@ void WallEBoard::StopRinging() {
     display_->ShowNotification("Alarm stopped", 1500);
     display_->HoldEmotion("happy", 800);
     if (alarm_listening_.exchange(false)) {
+        Application::GetInstance().HoldListenWatchdog(false);
         Application::GetInstance().Schedule([]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateListening) {

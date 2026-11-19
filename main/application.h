@@ -8,6 +8,7 @@
 
 #include <string>
 #include <mutex>
+#include <atomic>
 #include <deque>
 #include <memory>
 #include <functional>
@@ -111,6 +112,8 @@ public:
     void Reboot();
     void WakeWordInvoke(const std::string& wake_word);
     bool DeviceCall(const std::string& text);   // WALL-E: wake up and have the server speak this text first (the greeter); false when not idle
+    // WALL-E: the listening watchdog (see the clock tick) ends a Listening state that nobody speaks into for 25 s; the alarm's silent voice session listens for minutes on purpose and holds it off.
+    void HoldListenWatchdog(bool hold) { listen_hold_ = hold; }
     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
     bool CanEnterSleepMode();
     void SendMcpMessage(const std::string& payload);
@@ -140,6 +143,8 @@ private:
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
+    std::atomic<bool> listen_hold_{false};   // the listening watchdog is off (the alarm listens on purpose)
+    int64_t listening_quiet_since_us_ = 0;   // (main task only) since when the robot listens and nobody speaks; 0 = not listening
     AudioService audio_service_;
     NotifyPlayer notify_player_;
     uint32_t notification_playback_id_ = 0;

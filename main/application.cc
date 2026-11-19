@@ -281,6 +281,22 @@ void Application::Run() {
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
 
+            // Listening watchdog: the server ends a conversation nobody speaks into after about 6 s and closes the connection, but on a weak Wi-Fi link (-80 dBm) the close can
+            // get lost: the robot then listens into a dead channel for good (the display and the cover keep saying "Listening"). Nobody has spoken for 25 s: hang up.
+            if (GetDeviceState() == kDeviceStateListening && !listen_hold_.load()) {
+                const int64_t now_us = esp_timer_get_time();
+                if (listening_quiet_since_us_ == 0 || audio_service_.IsVoiceDetected()) {
+                    listening_quiet_since_us_ = now_us;
+                } else if (now_us - listening_quiet_since_us_ > 25LL * 1000 * 1000) {
+                    ESP_LOGW(TAG, "Listening for 25 s and nobody speaks: closing the audio channel");
+                    listening_quiet_since_us_ = 0;
+                    protocol_->CloseAudioChannel();
+                    SetDeviceState(kDeviceStateIdle);   // the close may never report back when the connection is dead
+                }
+            } else {
+                listening_quiet_since_us_ = 0;
+            }
+
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();

@@ -563,6 +563,9 @@ void Application::InitializeProtocol() {
     });
 
     protocol_->OnAudioChannelOpened([this, codec, &board]() {
+        // The websocket protocol never fires OnConnected (only MQTT does), so a network error ("Waiting for response timeout") left last_error_message_ set for good:
+        // the idle handler then never wrote "Standby" again and the status (and the cover's state line) stayed on "Listening". A working channel ends the error.
+        last_error_message_.clear();
         board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
         if (protocol_->server_sample_rate() != codec->output_sample_rate()) {
             ESP_LOGW(TAG,

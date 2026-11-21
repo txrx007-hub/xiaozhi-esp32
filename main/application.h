@@ -144,6 +144,7 @@ private:
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
     std::atomic<bool> listen_hold_{false};   // the listening watchdog is off (the alarm listens on purpose)
+    int listening_dead_ticks_ = 0;   // seconds in Listening without an open audio channel (a closed channel the robot never noticed)
     int64_t listening_quiet_since_us_ = 0;   // (main task only) since when the robot listens and nobody speaks; 0 = not listening
     AudioService audio_service_;
     NotifyPlayer notify_player_;

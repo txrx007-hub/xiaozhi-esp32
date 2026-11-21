@@ -1,4 +1,5 @@
 #include "application.h"
+#include <esp_task_wdt.h>
 #include "assets.h"
 #include "assets/lang_config.h"
 #include "audio_codec.h"
@@ -182,6 +183,17 @@ void Application::Run() {
     // Set the priority of the main task to 10
     vTaskPrioritySet(nullptr, 10);
 
+    // WALL-E: the main task is watched. On 21 Nov 2026 it froze for good: the state stayed on Listening, nothing scheduled on it ran any more (nap and wake did nothing, the serial log fell silent),
+    // the microphone stayed open and the robot heard the owner without reacting; only a restart helped. The loop below runs at least every 5 s, so 90 s without a turn means it is stuck: the
+    // watchdog then panics, which saves a core dump of every task (the coredump partition: it shows where the main task hangs) and restarts the robot instead of leaving it dead.
+    esp_task_wdt_config_t wdt_config = {};
+    wdt_config.timeout_ms = 90 * 1000;
+    wdt_config.idle_core_mask = (1 << 0) | (1 << 1);
+    wdt_config.trigger_panic = true;
+    if (esp_task_wdt_reconfigure(&wdt_config) == ESP_OK && esp_task_wdt_add(nullptr) == ESP_OK) {
+        ESP_LOGI(TAG, "Main task watchdog on: 90 s");
+    }
+
     const EventBits_t ALL_EVENTS =
         MAIN_EVENT_SCHEDULE | MAIN_EVENT_SEND_AUDIO | MAIN_EVENT_WAKE_WORD_DETECTED |
         MAIN_EVENT_VAD_CHANGE | MAIN_EVENT_CLOCK_TICK | MAIN_EVENT_ERROR |
@@ -190,7 +202,8 @@ void Application::Run() {
         MAIN_EVENT_STATE_CHANGED | MAIN_EVENT_PLAYBACK_DRAINED;
 
     while (true) {
-        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, portMAX_DELAY);
+        auto bits = xEventGroupWaitBits(event_group_, ALL_EVENTS, pdTRUE, pdFALSE, pdMS_TO_TICKS(5000));   // not forever: the watchdog below is fed on every turn
+        esp_task_wdt_reset();
 
         if (bits & MAIN_EVENT_ERROR) {
             if (GetDeviceState() == kDeviceStateNotifying) {
@@ -283,6 +296,18 @@ void Application::Run() {
 
             // Listening watchdog: the server ends a conversation nobody speaks into after about 6 s and closes the connection, but on a weak Wi-Fi link (-80 dBm) the close can
             // get lost: the robot then listens into a dead channel for good (the display and the cover keep saying "Listening"). Nobody has spoken for 25 s: hang up.
+            // A second way to a dead channel: the audio channel is closed (or has been silent for 120 s) but the robot never noticed. The 25 s rule below cannot see it while the owner
+            // talks (hearing a voice restarts its clock), so Listening without an open channel for 3 s hangs up as well.
+            if (GetDeviceState() == kDeviceStateListening && protocol_ != nullptr && !protocol_->IsAudioChannelOpened()) {
+                if (++listening_dead_ticks_ >= 3) {
+                    ESP_LOGW(TAG, "Listening but the audio channel is not open: hanging up");
+                    listening_dead_ticks_ = 0;
+                    protocol_->CloseAudioChannel();
+                    SetDeviceState(kDeviceStateIdle);
+                }
+            } else {
+                listening_dead_ticks_ = 0;
+            }
             if (GetDeviceState() == kDeviceStateListening && !listen_hold_.load()) {
                 const int64_t now_us = esp_timer_get_time();
                 if (listening_quiet_since_us_ == 0 || audio_service_.IsVoiceDetected()) {

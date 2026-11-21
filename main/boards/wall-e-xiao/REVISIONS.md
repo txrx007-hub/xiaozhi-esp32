@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 136 | 2026-11-21 | **Main task watchdog and dead-channel hang-up**: the robot froze with state Listening, the microphone open and nothing scheduled running; the main loop now wakes at least every 5 s and feeds a 90 s task watchdog that panics (core dump + restart); Listening without an open audio channel for 3 s hangs up | - | - |
 | 135 | 2026-11-21 | **Command list**: the landing page (English and Dutch) lists the new screens commands: "Instant: stocks, space and pictures" (show stocks, show ASML, where is the ISS, NASA picture of the day, the ticker) | 2.48 (the same group in the command list, Dutch through gen_i18n.py) | backend: `docs/screens.md` |
 | 134 | 2026-11-21 | **Euro sign in the ticker**: `walle_euro_font.c` is Montserrat 14 plus one drawn glyph, U+20AC (neither Montserrat nor Noto Sans has it); the ticker label uses it, so prices read "€114.38" | - | backend: `setup/screens.py` ticker text with the euro sign |
 | 133 | 2026-11-21 | **Scrolling ticker**: `POST /api/ticker {"text","ttl"}` / `{"off":true}` puts one scrolling line (the watchlist prices from the voice server's panel) along the bottom of the idle screen, also over the idle clock; hidden in conversations, covers, the game, the music screen, QR pages and the blank screen; the text goes by itself after ttl seconds | - | backend: `setup/screens.py`, `docs/screens.md` |

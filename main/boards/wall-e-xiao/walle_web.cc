@@ -850,6 +850,45 @@ esp_err_t PostGameHandler(httpd_req_t* req) {
     return SendJson(req, out);
 }
 
+// POST /api/ticker: the voice server's scrolling ticker (the prices of the watchlist). JSON body (512 bytes at most):
+//   {"text": "Nvidia 114.38 -14.0%   |   ASML 1,168 -9.6%", "ttl": 1200}   the text scrolls along the bottom of the idle screen; the same text again only renews the time (ttl seconds)
+//   {"off": true}                                                              the ticker goes
+// It shows while the robot is in Standby and nothing else owns the screen. Answer {"ok": true}.
+esp_err_t PostTickerHandler(httpd_req_t* req) {
+    std::string body;
+    if (!ReadBody(req, body)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad request body");
+        return ESP_FAIL;
+    }
+    cJSON* root = cJSON_Parse(body.c_str());
+    if (root == nullptr) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "not JSON");
+        return ESP_FAIL;
+    }
+    WalleDisplay* display = WallEBoard::Get().walle_display();
+    cJSON* out = cJSON_CreateObject();
+    if (display == nullptr) {
+        cJSON_AddBoolToObject(out, "ok", false);
+        cJSON_AddStringToObject(out, "message", "no screen");
+    } else if (cJSON_IsTrue(cJSON_GetObjectItem(root, "off"))) {
+        display->ClearTicker();
+        cJSON_AddBoolToObject(out, "ok", true);
+    } else {
+        const cJSON* text = cJSON_GetObjectItem(root, "text");
+        const cJSON* ttl = cJSON_GetObjectItem(root, "ttl");
+        if (!cJSON_IsString(text) || text->valuestring[0] == 0) {
+            cJSON_Delete(root);
+            cJSON_Delete(out);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "text is needed");
+            return ESP_FAIL;
+        }
+        display->SetTicker(text->valuestring, cJSON_IsNumber(ttl) ? ttl->valueint : 1200);
+        cJSON_AddBoolToObject(out, "ok", true);
+    }
+    cJSON_Delete(root);
+    return SendJson(req, out);
+}
+
 // POST /api/cover: the voice server's cover wallpaper (the Spotify cover of the song that plays, see docs/spotify.md in the backend). Three forms:
 //   POST /api/cover            body = 240 x 240 pixels, RGB565, little endian (115,200 bytes): the new picture, shown full screen under the Wi-Fi and mute icons
 //   POST /api/cover?keep=1     no body: the picture goes on (it goes by itself 45 s after the last picture or keep); answers {"ok": false, "message": "no picture"} when the robot has none, so the
@@ -1060,6 +1099,7 @@ void Start() {
         {.uri = "/api/camreg", .method = HTTP_POST, .handler = PostCamRegHandler, .user_ctx = nullptr},
         {.uri = "/api/game", .method = HTTP_POST, .handler = PostGameHandler, .user_ctx = nullptr},
         {.uri = "/api/cover", .method = HTTP_POST, .handler = PostCoverHandler, .user_ctx = nullptr},
+        {.uri = "/api/ticker", .method = HTTP_POST, .handler = PostTickerHandler, .user_ctx = nullptr},
     };
     for (const auto& route : kRoutes) {
         httpd_register_uri_handler(s_server, &route);

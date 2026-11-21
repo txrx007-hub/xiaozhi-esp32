@@ -329,6 +329,7 @@ void WalleDisplay::SetupUI() {
     PlaceWifiCorner();
     CreateCover();   // under the clock (which is created next and lies over it), over the music and game screens' boxes
     CreateClock();
+    CreateTicker();   // after the clock, so the strip lies over the idle clock too (the boot splash, created last, still lies over it)
     ApplySubtitleStyle();   // the saved spoken-text style, now that the bottom bar and its label exist
     status_dot_ = MakeBox(lv_layer_top(), width_ - 16, 6, 10, 10, 0xf59e0b, LV_RADIUS_CIRCLE);
     CreateMuteIcon();
@@ -627,6 +628,7 @@ void WalleDisplay::UpdateRibbon() {
     const Ribbon mode = ribbon_mode_.load();
     UpdateGameScreen();   // the tic-tac-toe board (a no-op while no game is on)
     UpdateCoverScreen();  // the Spotify cover wallpaper (a no-op while the voice server sends none)
+    UpdateTickerScreen(); // the scrolling ticker (a no-op while the voice server sends none)
     const bool game_up = game_shown_.load();
     if (ribbon_ == nullptr || spectrum_root_ == nullptr) {
         return;
@@ -2377,6 +2379,78 @@ void WalleDisplay::UpdateCoverScreen() {
         SetShown(cover_root_, false);
     }
     ApplyEyeCover();   // the eyes and the status line step aside, and come back with the cover gone
+}
+
+// ------------------------------------------------------------------------------------------------------ ticker (the voice server's watchlist prices)
+namespace {
+constexpr int kTickerH = 20;                        // the strip's height at the bottom edge
+constexpr int kTickerMaxChars = 460;
+}  // namespace
+
+void WalleDisplay::CreateTicker() {
+    ticker_root_ = MakeBox(lv_layer_top(), 0, height_ - kTickerH, width_, kTickerH, 0x000000, 0);
+    lv_obj_set_style_bg_opa(ticker_root_, LV_OPA_80, 0);   // the eyes or the clock stay faintly visible behind the strip
+    lv_obj_remove_flag(ticker_root_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ticker_root_, LV_OBJ_FLAG_SCROLLABLE);
+    ticker_label_ = MakeLabel(ticker_root_, LV_FONT_DEFAULT, 0xe6e8ee, "");
+    lv_obj_set_width(ticker_label_, width_);
+    lv_label_set_long_mode(ticker_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);   // one label, so the screen only redraws this strip while it moves
+    lv_obj_align(ticker_label_, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_add_flag(ticker_root_, LV_OBJ_FLAG_HIDDEN);
+}
+
+void WalleDisplay::SetTicker(const std::string& text, int ttl_s) {
+    ttl_s = std::clamp(ttl_s, 30, 3600);
+    std::string clean = text.substr(0, kTickerMaxChars);
+    {
+        std::lock_guard<std::mutex> g(ticker_mutex_);
+        if (clean != ticker_text_) {
+            ticker_text_ = clean;
+            ticker_dirty_ = true;
+        }
+    }
+    ticker_until_us_ = esp_timer_get_time() + static_cast<int64_t>(ttl_s) * 1000000LL;
+}
+
+void WalleDisplay::ClearTicker() {
+    ticker_until_us_ = 0;
+    std::lock_guard<std::mutex> g(ticker_mutex_);
+    ticker_text_.clear();
+    ticker_dirty_ = true;
+}
+
+// LVGL timer (display lock held). The strip shows while there is a text that has not run out, the robot is in Standby again for a moment and nothing else owns the screen. While it is
+// hidden the label holds no text, so its scroll animation does not run at all.
+void WalleDisplay::UpdateTickerScreen() {
+    if (ticker_root_ == nullptr || ticker_label_ == nullptr) {
+        return;
+    }
+    const int64_t now = esp_timer_get_time();
+    std::string text;
+    {
+        std::lock_guard<std::mutex> g(ticker_mutex_);
+        text = ticker_text_;
+    }
+    const bool idle = !conv_busy_.load() && now - conv_idle_us_.load() > kCoverIdleUs;
+    const bool want = !text.empty() && now < ticker_until_us_.load() && idle && !blank_ && !cover_shown_.load() && !game_shown_.load() && !music_screen_shown_.load() &&
+                      !qr_shown_.load();
+    if (want) {
+        if (!ticker_up_ || ticker_dirty_.exchange(false)) {
+            lv_label_set_text(ticker_label_, text.c_str());   // a new text, or the strip coming back: the scroll starts from the left
+            lv_obj_align(ticker_label_, LV_ALIGN_LEFT_MID, 0, 0);
+        }
+        if (!ticker_up_) {
+            ticker_up_ = true;
+            lv_obj_remove_flag(ticker_root_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(ticker_root_);
+        }
+    } else if (ticker_up_) {
+        ticker_up_ = false;
+        lv_label_set_text(ticker_label_, "");
+        lv_obj_add_flag(ticker_root_, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        ticker_dirty_ = false;   // hidden: the next time it comes up it takes the newest text anyway
+    }
 }
 
 bool WalleDisplay::DeferClockForCover() {

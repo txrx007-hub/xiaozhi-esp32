@@ -163,6 +163,12 @@ public:
     void CoverKeep();          // the same picture goes on for another while
     void CoverClear();         // the picture is over
     bool CoverUp() const { return cover_shown_.load(); }
+
+    // Ticker (POST /api/ticker, see walle_web.cc): one line of text that scrolls along the bottom of the idle screen (the prices of the watchlist in the voice server's panel).
+    // Shown only while the robot is in Standby and nothing else owns the screen (a cover, the game, the music screen, a QR page, the blank screen); over the idle clock too.
+    // The same text again only renews the time; the text goes by itself when nothing renews it for ttl_s seconds (the voice server renews it every 5 minutes).
+    void SetTicker(const std::string& text, int ttl_s);
+    void ClearTicker();
     bool HasCover() const { return cover_valid_.load() && esp_timer_get_time() < cover_until_us_.load(); }   // a picture is held and has not run out
 
     // The cover beats the idle clock: while a cover is held the clock does not come up (the board asks DeferClockForCover when its idle timer fires), a clock that is already up gives way
@@ -273,6 +279,15 @@ private:
     // The cover wallpaper (see CoverShow): a full-screen box on the top layer with the picture and a copy of the Wi-Fi icon, under the mute icon and the status dot.
     void CreateCover();
     void UpdateCoverScreen();   // LVGL timer: shows and hides the cover
+    void CreateTicker();
+    void UpdateTickerScreen();  // LVGL timer: shows and hides the ticker, puts a new text in
+    lv_obj_t* ticker_root_ = nullptr;
+    lv_obj_t* ticker_label_ = nullptr;
+    std::mutex ticker_mutex_;                      // guards ticker_text_ only
+    std::string ticker_text_;                      // the newest text (set by the web task)
+    std::atomic<bool> ticker_dirty_{false};        // ticker_text_ has a text the label does not have yet
+    std::atomic<int64_t> ticker_until_us_{0};      // the text runs out at this time
+    bool ticker_up_ = false;                       // (LVGL timer only) the strip is on screen
     lv_obj_t* cover_root_ = nullptr;
     lv_obj_t* cover_img_ = nullptr;
     lv_obj_t* cover_wifi_ = nullptr;

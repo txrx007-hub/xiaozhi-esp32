@@ -28,6 +28,7 @@ extern const uint8_t boot_gif_end[] asm("_binary_boot_gif_end");
 
 // The stock top bar's icon font: compiled in and never swapped (unlike the theme's text font), so the clock's Wi-Fi icon may use it.
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
+LV_FONT_DECLARE(walle_euro_font);   // walle_euro_font.c: Montserrat 14 plus the euro sign (neither Montserrat nor Noto Sans has it)
 
 namespace {
 
@@ -2392,7 +2393,7 @@ void WalleDisplay::CreateTicker() {
     lv_obj_set_style_bg_opa(ticker_root_, LV_OPA_80, 0);   // the eyes or the clock stay faintly visible behind the strip
     lv_obj_remove_flag(ticker_root_, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(ticker_root_, LV_OBJ_FLAG_SCROLLABLE);
-    ticker_label_ = MakeLabel(ticker_root_, LV_FONT_DEFAULT, 0xe6e8ee, "");
+    ticker_label_ = MakeLabel(ticker_root_, &walle_euro_font, 0xe6e8ee, "");   // Montserrat 14 + the euro sign
     lv_obj_set_width(ticker_label_, width_);
     lv_label_set_long_mode(ticker_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);   // one label, so the screen only redraws this strip while it moves
     lv_obj_align(ticker_label_, LV_ALIGN_LEFT_MID, 0, 0);

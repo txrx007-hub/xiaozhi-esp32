@@ -1925,13 +1925,14 @@ void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     auto img_dsc = preview_image_cached_->image_dsc();
     lv_image_set_src(preview_image_, img_dsc);
     if (img_dsc->header.w > 0 && img_dsc->header.h > 0) {
-        // Fit within the whole screen preserving aspect ratio (a 4:3 photo becomes 240x180 on the
-        // 240x240 screen), centred: scale by whichever axis is tighter, same technique upstream uses.
+        // 24 Nov 2026: fill the whole screen like the music picture (cover wallpaper): scale by whichever axis is LOOSER, so the shorter side of the photo
+        // reaches the screen edge and a 4:3 photo is cropped left and right (about 12 % each) instead of leaving black bars above and below (it was
+        // 240x180 before). The object is centred and the screen edge does the cropping.
         const int box_w = width_;
         const int box_h = height_;
         const int zoom_w = 256 * box_w / img_dsc->header.w;
         const int zoom_h = 256 * box_h / img_dsc->header.h;
-        lv_image_set_scale(preview_image_, std::min(zoom_w, zoom_h));
+        lv_image_set_scale(preview_image_, std::max(zoom_w, zoom_h));
     }
     if (gif_controller_) {
         gif_controller_->Stop();

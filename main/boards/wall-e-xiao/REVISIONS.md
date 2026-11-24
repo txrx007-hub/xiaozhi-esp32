@@ -9,6 +9,7 @@ The app and the backend keep their own version names (app `versionName`, backend
 
 | Revision | Date | What | App | Landing page / backend |
 |---|---|---|---|---|
+| 140 | 2026-11-24 | **Photo preview stays 5 s** (was 3.5 s) | - | - |
 | 139 | 2026-11-24 | **Photo preview fills the screen**: the picture shown for 3.5 s after a photo is scaled to cover the whole 240x240 screen like the music picture (cropped left and right) instead of 240x180 with black bars | - | - |
 | 138 | 2026-11-24 | **Voice photo: own picture**: after 137 the robot still restarted when another picture was taken at the same time (core dump: the JPEG encoder started on a picture another capture had just released). Explain now takes the picture out of the shared frame under the camera lock and owns it until the upload is done; takes a fresh one when it is gone | - | - |
 | 137 | 2026-11-24 | **Reset after "take a picture" fixed**: a voice photo restarted the robot (core dump: std::thread::join in EspVideo::Explain, abort). Another capture (live look, app, /api/photo) joined the same encoder thread at the same moment, which throws on this build; Explain now holds the camera lock from the start of the encoder thread until it is joined | - | - |

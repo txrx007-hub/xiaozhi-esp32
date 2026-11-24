@@ -1941,7 +1941,7 @@ void WalleDisplay::SetPreviewImage(std::unique_ptr<LvglImage> image) {
     lv_obj_remove_flag(preview_image_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_align(preview_image_, LV_ALIGN_CENTER, 0, 0);
     esp_timer_stop(preview_timer_);
-    esp_timer_start_once(preview_timer_, 3500 * 1000);  // 3.5 s (upstream: 5 s)
+    esp_timer_start_once(preview_timer_, 5000 * 1000);  // 5 s (was 3.5 s from rev 114 to 139)
 }
 
 void WalleDisplay::SetBlank(bool blank) {

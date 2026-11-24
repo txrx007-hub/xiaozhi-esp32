@@ -1433,6 +1433,15 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         return std::unexpected("Failed to create JPEG queue");
     }
 
+    // WALL-E: the encoder thread belongs to the capture lock from here until it has been joined. Another picture (a live look from the greeter or the app,
+    // /api/photo) used to be able to start in the middle: CaptureImpl() joins encoder_thread_ too, and a second join of the same thread throws
+    // (EINVAL: "another task is already joining it"). Exceptions are off on this build, so that was an abort() - the robot restarted right after
+    // "take a picture" (core dump of 24 Nov 2026: std::thread::join in Explain, called from the take_photo tool).
+    std::unique_lock<std::mutex> encode_lock(capture_mutex_);
+    if (encoder_thread_.joinable()) {
+        encoder_thread_.join();   // assigning a new thread to a joinable one would std::terminate
+    }
+
     // We spawn a thread to encode the image to JPEG using optimized encoder (cost about 500ms and
     // 8KB SRAM)
     encoder_thread_ = std::thread([this, jpeg_queue]() {
@@ -1471,13 +1480,14 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
     // running) and jpeg_queue is deliberately left undeleted (never vQueueDelete'd), since the
     // detached thread's sink callback may still xQueueSend into it. A single leaked queue
     // handle on this rare, abnormal path is far safer than a use-after-free on it.
-    auto drain_jpeg_queue = [this, jpeg_queue, &encoder_hung, kJpegChunkTimeout]() {
+    auto drain_jpeg_queue = [this, jpeg_queue, &encoder_hung, &encode_lock, kJpegChunkTimeout]() {
         JpegChunk chunk;
         while (true) {
             if (xQueueReceive(jpeg_queue, &chunk, kJpegChunkTimeout) != pdPASS) {
                 ESP_LOGE(TAG, "JPEG encoder did not respond in time; abandoning it");
                 encoder_hung = true;
                 encoder_thread_.detach();
+                encode_lock.unlock();
                 return;
             }
             if (chunk.data != nullptr) {
@@ -1488,6 +1498,7 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         }
         encoder_thread_.join();
         vQueueDelete(jpeg_queue);
+        encode_lock.unlock();
     };
 
     auto network = Board::GetInstance().GetNetwork();
@@ -1574,6 +1585,9 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         encoder_thread_.join();
         // 清理队列
         vQueueDelete(jpeg_queue);
+    }
+    if (encode_lock.owns_lock()) {
+        encode_lock.unlock();   // the encoder is joined or abandoned: other pictures may be taken while the answer is awaited
     }
     // WALL-E: if encoder_hung, jpeg_queue is deliberately left undeleted (see drain_jpeg_queue).
 

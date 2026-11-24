@@ -1411,20 +1411,18 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
 
     // WALL-E: the picture is only needed for this call (the vision model gets its JPEG); release it on every way out, so ~1 MB of PSRAM is free again
     // while the robot is idle. Not when the encoder was abandoned (it may still read the pixels), and only if it is still the frame this call started with.
-    struct FrameRelease {
-        EspVideo* self;
-        uint8_t* mine;
+    // 24 Nov 2026: the picture is now taken OUT of frame_ at the start (see below) and owned by this call alone. Before, Explain read the shared frame_ while
+    // other pictures (live looks, /api/photo) could free or replace it in between: the encoder was started on a null frame (core dump: encode_with_esp_new_jpeg,
+    // src=0x0) after another capture had released it.
+    struct OwnedFrame {
+        uint8_t* data;
         const bool* hung;
-        ~FrameRelease() {
-            if (*hung || mine == nullptr) {
-                return;
-            }
-            std::lock_guard<std::mutex> lock(self->capture_mutex_);
-            if (self->frame_.data == mine) {
-                self->ReleaseFrame();
+        ~OwnedFrame() {
+            if (data != nullptr && !*hung) {
+                heap_caps_free(data);
             }
         }
-    } frame_release{this, frame_.data, &encoder_hung};
+    } owned{nullptr, &encoder_hung};
 
     // 创建局部的 JPEG 队列, 40 entries is about to store 512 * 40 = 20480 bytes of JPEG data
     QueueHandle_t jpeg_queue = xQueueCreate(40, sizeof(JpegChunk));
@@ -1442,14 +1440,33 @@ std::expected<std::string, std::string> EspVideo::Explain(const std::string& que
         encoder_thread_.join();   // assigning a new thread to a joinable one would std::terminate
     }
 
+    // The picture the tool took (or the collage) is in frame_; another capture may have released or replaced it since: then take a fresh one (at most 3 tries).
+    for (int attempt = 0; attempt < 3 && (frame_.data == nullptr || frame_.len == 0); ++attempt) {
+        encode_lock.unlock();
+        const bool taken = CaptureImpl(1, false);
+        encode_lock.lock();
+        if (!taken) {
+            break;
+        }
+    }
+    if (frame_.data == nullptr || frame_.len == 0) {
+        vQueueDelete(jpeg_queue);
+        return std::unexpected("Failed to capture photo");
+    }
+    // Take it out of frame_: from here on nobody else can free it under the encoder.
+    owned.data = frame_.data;
+    const size_t pic_len = frame_.len;
+    const uint16_t pic_w = frame_.width ? frame_.width : 320;
+    const uint16_t pic_h = frame_.height ? frame_.height : 240;
+    const v4l2_pix_fmt_t pic_fmt = frame_.format;
+    frame_.data = nullptr;
+    frame_.len = 0;
+
     // We spawn a thread to encode the image to JPEG using optimized encoder (cost about 500ms and
     // 8KB SRAM)
-    encoder_thread_ = std::thread([this, jpeg_queue]() {
-        uint16_t w = frame_.width ? frame_.width : 320;
-        uint16_t h = frame_.height ? frame_.height : 240;
-        v4l2_pix_fmt_t enc_fmt = frame_.format;
+    encoder_thread_ = std::thread([jpeg_queue, pic = owned.data, pic_len, pic_w, pic_h, pic_fmt]() {
         bool ok = image_to_jpeg_cb(
-            frame_.data, frame_.len, w, h, enc_fmt, 90,
+            pic, pic_len, pic_w, pic_h, pic_fmt, 90,
             [](void* arg, size_t index, const void* data, size_t len) -> size_t {
                 auto jpeg_queue = static_cast<QueueHandle_t>(arg);
                 JpegChunk chunk = {.data = nullptr, .len = len};
